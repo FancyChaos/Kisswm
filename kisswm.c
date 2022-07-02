@@ -27,8 +27,9 @@ typedef struct Tag Tag;
 struct Client {
         Window win;
         Monitor *m;
-        unsigned int tag;
+        Tag *tag;
         Client *next;
+        Client *focusnext;
         int y;
         int x;
         int width;
@@ -38,7 +39,7 @@ struct Client {
 
 struct Tag {
         Client *clients;
-        Client *selc;
+        Client *focusclients;
         int clientnum;
 };
 
@@ -59,9 +60,12 @@ void closeclient(Window);
 void die(char*, int);
 void setup();
 Client* wintoclient(Window);
+Tag* currenttag(Monitor*);
 void updatemons();
 void attach(Client*);
 void detach(Client*);
+void focusattach(Client*);
+void focusdetach(Client*);
 void focus(Client*);
 void arrange(Monitor*);
 void arrangemon(Monitor*);
@@ -139,20 +143,54 @@ wintoclient(Window w)
 void
 closeclient(Window w)
 {
-        Client *c;
-        if ((selc->win == w && (c = selc)) || (c = wintoclient(w))) {
-                c->m->tags[c->m->tag].clientnum -= 1;
-                Monitor *m = c->m;
-                detach(c);
-                // TODO: Current select client should be the last accessed one
-                selc = m->tags[m->tag].selc = m->tags[m->tag].clients;
-                printf("Selc after delete: %p\n", selc);
-                arrangemon(m);
-                printf("Deleted client: %p\n", c);
-                free(c);
-        }
+        Client *c = selc->win == w ? selc : NULL;
+        if (!c && !(c = wintoclient(w)))
+                return;
+
+        Monitor *m = c->m;
+        Tag *t = currenttag(m);
+
+        t->clientnum -= 1;
+        detach(c);
+        focusdetach(c);
+        printf("Selc after delete: %p\n", selc);
+        arrangemon(m);
+        printf("Deleted client: %p\n", c);
+        free(c);
+
+        // TODO: What does this do exactly? (DWM)
         XEvent ev;
         while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
+}
+
+void
+focusattach(Client *c)
+{
+        Tag *t = currenttag(c->m);
+        if (!t)
+                return;
+
+        printf("Attaching Client to Tag: %p\n", t);
+        selmon = c->m;
+        selc = c;
+        Client *beforefocus = t->focusclients;
+        if (t->clientnum > 1 && beforefocus)
+                c->focusnext = beforefocus;
+        t->focusclients = c;
+        printf("Client Attached: %p\n", t->focusclients);
+
+}
+
+void
+focusdetach(Client *c)
+{
+    Tag *t = currenttag(c->m);
+    if (!t)
+            return;
+
+    t->focusclients = c->focusnext;
+    selc = t->focusclients;
+    c->focusnext = NULL;
 }
 
 void
@@ -161,6 +199,8 @@ detach(Client *c)
         Client **todetach;
         for (todetach = &c->m->tags[c->m->tag].clients; *todetach && *todetach != c; todetach = &(*todetach)->next);
         *todetach = c->next;
+        // TODO: Maybe set c->next to NULL?
+        c->next = NULL;
 }
 
 void
@@ -189,11 +229,24 @@ arrange(Monitor *m)
                 arrangemon(m);
 }
 
+Tag *
+currenttag(Monitor *m)
+{
+        if (!m)
+                m = selmon;
+        if (!selmon)
+                return NULL;
+
+        return &m->tags[m->tag];
+}
+
 void
 arrangemon(Monitor *m)
 {
+
         // Only arrange current focused Tag of the monitor
-        if (m->tags[m->tag].clientnum == 0)
+        Tag *t = currenttag(m);
+        if (t && !t->clientnum)
                 return;
 
         printf("Arrange Monitor: %p\n", m);
@@ -202,15 +255,15 @@ arrangemon(Monitor *m)
         // Maybe we can iterate to all clients of a mon by looping through the tags first
         XWindowChanges wc;
 
-        int setwidth = m->width / m->tags[m->tag].clientnum;
+        int setwidth = m->width / t->clientnum;
         int setheight = m->height;
         int setx = m->x;
 
-        printf("Clientnum: %d\n", m->tags[m->tag].clientnum);
+        printf("Clientnum: %d\n", t->clientnum);
         printf("Width: %d, Height: %d, setx: %d\n", setwidth, setheight, setx);
 
         int clientpos = 0;
-        for (Client *c = m->tags[m->tag].clients; c; c = c->next) {
+        for (Client *c = t->clients; c; c = c->next) {
                 c->width = wc.width = setwidth;
                 c->height = wc.height = setheight;
                 c->x = wc.x = setx = (c->width * clientpos++);
@@ -221,9 +274,14 @@ arrangemon(Monitor *m)
                 XConfigureWindow(dpy, c->win, CWX|CWWidth|CWHeight, &wc);
         }
 
-        if (selc && m->tags[m->tag].selc == selc)
-                focus(selc);
+
+        Tag *selectedtag = currenttag(selmon);
+        printf("Selectedtag: %p\n", selectedtag);
+        printf("Current mon tag: %p\n", t);
+        printf("Focusclients: %p\n", selectedtag->focusclients);
+        focus(selectedtag->focusclients);
         XSync(dpy, 0);
+        printf("Done arranging\n");
 }
 
 
@@ -238,15 +296,13 @@ maprequest(XEvent *e)
 
         Client *c = malloc(sizeof(Client));
         c->win = ev->window;
-        // TODO: Will lead to bugs when app opens and monitor is changed quickly
-        // We need to calculate which monitor is responsible for the new window (x,y) calculation
         c->m = selmon;
-        c->tag = c->m->tag;
+        Tag *t = currenttag(c->m);
+        c->tag = t;
 
-        c->m->tags[c->m->tag].clientnum += 1;
-        c->m->tags[c->m->tag].selc = c;
-        selc = c;
+        t->clientnum += 1;
         attach(c);
+        focusattach(c);
 
         XMapWindow(dpy, c->win);
         grabkeys(&(c->win));
