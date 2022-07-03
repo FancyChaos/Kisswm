@@ -6,6 +6,12 @@
 #include <X11/XKBlib.h>
 #include <X11/keysym.h>
 
+#ifdef DODEBUG
+        #define DEBUG(...) fprintf(stderr, "DEBUG: "__VA_ARGS__"\n")
+#else
+        #define DEBUG(...) do {} while (0)
+#endif
+
 typedef union {
         int i;
         unsigned int ui;
@@ -55,7 +61,6 @@ struct Monitor {
         int width;
 };
 
-void test(Arg*);
 void spawn(Arg*);
 void focustag(Arg*);
 void cycletag(Arg*);
@@ -106,129 +111,159 @@ Window root;
 Monitor *mons, *selmon;
 Client *selc;
 
-void
-killclient(Arg *arg)
-{
-        printf("Killing client: %p\n", selc);
-        if (!selc)
-                return;
 
-        XGrabServer(dpy);
-        XKillClient(dpy, selc->win);
-        XUngrabServer(dpy);
-}
+/*** X11 Eventhandling ****/
 
 void
 destroynotify(XEvent *e)
 {
+        DEBUG("---Start: DestroyNotify---");
         XDestroyWindowEvent *ev = &e->xdestroywindow;
-        printf("Destroy Notify!!\n");
         closeclient(ev->window);
         XSync(dpy, 0);
+        DEBUG("---End: DestroyNotify---");
 }
 
 void
 unmapnotify(XEvent *e)
 {
+        DEBUG("---Start: UnmapNotify---");
         XUnmapEvent *ev = &e->xunmap;
-}
-
-Client*
-wintoclient(Window w)
-{
-        Monitor *m;
-        Client *c;
-        for (m = mons; m; m = m->next)
-                for (int i = 0; i < tags_num; ++i)
-                        for (c = m->tags[i].clients; c; c = c->next)
-                                if (c->win == w)
-                                        return c;
-
-        return NULL;
+        DEBUG("---End: UnmapNotify---");
 }
 
 void
-focustag(Arg *arg)
+maprequest(XEvent *e)
 {
-        unsigned int tagtofocus = arg->ui - 1;
-        if (tagtofocus == selmon->tag)
+        DEBUG("---Start: MapRequest---");
+	// TODO: Denie if 10 or more clients are on tag
+        XMapRequestEvent *ev = &e->xmaprequest;
+        XWindowAttributes wa;
+
+        if (!XGetWindowAttributes(dpy, ev->window, &wa))
                 return;
 
-        selmon->tag = tagtofocus;
-        printf("Focusing Tag %lu now\n", tagtofocus);
-        arrangemon(selmon);
-        printf("Done focusing\n");
+        Client *c = malloc(sizeof(Client));
+        c->next = c->prev = c->nextfocus = c->prevfocus = NULL;
+        c->win = ev->window;
+        c->m = selmon;
+        Tag *t = currenttag(c->m);
+        c->tag = t;
 
+        attach(c);
+        focusattach(c);
+
+        arrangemon(c->m);
+
+        XMapWindow(dpy, c->win);
+        grabkeys(&(c->win));
+
+        focus(selc);
+
+        DEBUG("---End: MapRequest---");
 }
 
 void
-cycletag(Arg *arg)
+configurenotify(XEvent *e)
 {
-
+        DEBUG("---Start: ConfigureNotify---");
+        XConfigureEvent *ev = &e->xconfigure;
+        DEBUG("---End: ConfigureNotify---");
 }
 
-void cycleclient(Arg *arg)
+void
+configurerequest(XEvent *e)
 {
-        if (!selc)
-                return;
+        DEBUG("---Start: ConfigureRequest---");
+        XConfigureRequestEvent *ev = &e->xconfigurerequest;
+        XWindowChanges wc;
 
-        Tag *t = currenttag(selc->m);
-        if  (t->clientnum < 2)
-                return;
+        wc.x = ev->x;
+        wc.y = ev->y;
+        wc.width = ev->width;
+        wc.height = ev->height;
+        wc.border_width = ev->border_width;
 
-        Client *tofocus = NULL;
-
-        if (arg->i > 0) {
-                // Focus to next element or to first in stack
-                tofocus = selc->next;
-                if (!tofocus)
-                        tofocus = t->clients;
-        } else {
-                // Focus to previous element or last in the stack
-                tofocus = selc->prev;
-                if (!tofocus)
-                        for (tofocus = selc; tofocus->next; tofocus = tofocus->next);
-
-        }
-        focusc(tofocus);
-
+        XConfigureWindow(dpy, ev->window, (unsigned int)ev->value_mask, &wc);
+        XSync(dpy, 0);
+        DEBUG("---End: ConfigureRequest---");
 }
+
+void
+buttonpress(XEvent *e)
+{
+        DEBUG("---Start: ButtonPress---");
+        XButtonPressedEvent *ev = &e->xbutton;
+        DEBUG("---End: ButtonPress---");
+}
+
+
+void
+keypress(XEvent *e)
+{
+        XKeyEvent *ev = &e->xkey;
+        KeySym keysym = XkbKeycodeToKeysym(dpy, (KeyCode)ev->keycode, 0, 0);
+
+        for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
+                if (keysym == keys[i].keysym
+                    && ev->state == (keys[i].modmask)
+                    && keys[i].f) {
+                        keys[i].f(&(keys[i].arg));
+                        XSync(dpy, 0);
+                }
+}
+
+int
+onxerror(Display *dpy, XErrorEvent *ee)
+{
+        DEBUG("#####[ERROR]: An Error occurred#####");
+        fflush(NULL);
+        return 0;
+}
+
+/*** WM state changing functions ***/
 
 void
 closeclient(Window w)
 {
-        Client *c = selc->win == w ? selc : NULL;
+        DEBUG("---Start: closeclient---");
+        Client *c = (selc && selc->win == w) ? selc : NULL;
         if (!c && !(c = wintoclient(w)))
                 return;
 
+        DEBUG("---Client will no be closed---");
+
         Monitor *m = c->m;
         Tag *t = currenttag(m);
-
-        printf("Selc before delete: %p\n", selc);
 
         detach(c);
         focusdetach(c);
         free(c);
 
-        printf("Selc after delete: %p\n", selc);
-        printf("Deleted client: %p\n", c);
         arrangemon(m);
+        focus();
 
         // TODO: What does this do exactly? (DWM)
         XEvent ev;
         while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
+        DEBUG("---End: closeclient---");
 }
 
 void
 focus()
 {
+        if (!selc)
+                return;
+        DEBUG("---Start: focus---");
         // TODO: Set netatom NetActiveWindow (XChangeProperty)
         XSetInputFocus(dpy, selc->win, RevertToPointerRoot, CurrentTime);
+        DEBUG("---End: focus---");
 }
 
 void
 focusc(Client *c)
 {
+        DEBUG("---Start: focusc---");
         if (!c)
                 return;
 
@@ -259,11 +294,13 @@ focusc(Client *c)
         selmon = c->m;
 
         focus();
+        DEBUG("---End: focusc---");
 }
 
 void
 focusattach(Client *c)
 {
+        DEBUG("---Start: focusattach---");
         Tag *t = currenttag(c->m);
         if (!t)
                 return;
@@ -278,16 +315,14 @@ focusattach(Client *c)
         selmon = c->m;
         t->focusclients = c;
 
-        printf("Main Focus client: %p\n", t->focusclients);
-        for (Client *f = t->focusclients; f; f = f->prevfocus) {
-                printf("Focus client: %p\n", f);
-        }
+        DEBUG("---End: focusattach---");
 
 }
 
 void
 focusdetach(Client *c)
 {
+        DEBUG("---Start: focusdetach---");
         Tag *t = currenttag(c->m);
         if (!t)
                 return;
@@ -305,11 +340,13 @@ focusdetach(Client *c)
         c->prevfocus->nextfocus = c->nextfocus;
 
         c->prevfocus = c->nextfocus = NULL;
+        DEBUG("---End: focusdetach---");
 }
 
 void
 detach(Client *c)
 {
+        DEBUG("---Start: detach---");
         Tag *t = currenttag(c->m);
         if (!t)
                 return;
@@ -330,11 +367,13 @@ detach(Client *c)
         else
                 // Detaching first client
                 t->clients = c->next;
+        DEBUG("---End: detach---");
 }
 
 void
 attach(Client *c)
 {
+        DEBUG("---Start: attach---");
         Tag *t = currenttag(c->m);
         if (!t)
                 return;
@@ -353,30 +392,23 @@ attach(Client *c)
         for (lastc = t->clients; lastc->next; lastc = lastc->next);
         lastc->next = c;
         c->prev = lastc;
+        DEBUG("---End: attach---");
 }
 
 void
 arrange(Monitor *m)
 {
+        DEBUG("---Start: arrange---");
         // Arrange current viewable terminals
         for (Monitor *m = mons; m; m = m->next)
                 arrangemon(m);
-}
-
-Tag *
-currenttag(Monitor *m)
-{
-        if (!m)
-                m = selmon;
-        if (!selmon)
-                return NULL;
-
-        return &m->tags[m->tag];
+        DEBUG("---End: arrange---");
 }
 
 void
 arrangemon(Monitor *m)
 {
+        DEBUG("---Start: arrangemon---");
 
         // Only arrange current focused Tag of the monitor
         // TODO: Hide windows which not on  the current tag
@@ -385,7 +417,6 @@ arrangemon(Monitor *m)
         if (t && !t->clientnum)
                 return;
 
-        printf("Arrange Monitor: %p\n", m);
         // TODO: Maybe call it arrangetag instead (We only arrange an active tag and it's client)
         // TODO: How to hide client/windows which are not an this tag/mon? Maybe I still need a big ass client linked list
         // Maybe we can iterate to all clients of a mon by looping through the tags first
@@ -405,70 +436,15 @@ arrangemon(Monitor *m)
         }
 
 
-        focus();
         XSync(dpy, 0);
+        DEBUG("---End: arrangemon---");
 }
 
-
-void
-maprequest(XEvent *e)
-{
-	// TODO: Denie if 10 or more clients are on tag
-        XMapRequestEvent *ev = &e->xmaprequest;
-        XWindowAttributes wa;
-
-        if (!XGetWindowAttributes(dpy, ev->window, &wa))
-                return;
-
-        Client *c = malloc(sizeof(Client));
-        c->next = c->prev = c->nextfocus = NULL;
-        c->win = ev->window;
-        c->m = selmon;
-        Tag *t = currenttag(c->m);
-        c->tag = t;
-
-        attach(c);
-        focusattach(c);
-
-        XMapWindow(dpy, c->win);
-        grabkeys(&(c->win));
-
-        XSync(dpy, 0);
-
-        arrangemon(c->m);
-}
-
-void
-configurenotify(XEvent *e)
-{
-        XConfigureEvent *ev = &e->xconfigure;
-}
-
-void
-configurerequest(XEvent *e)
-{
-        XConfigureRequestEvent *ev = &e->xconfigurerequest;
-        XWindowChanges wc;
-
-        wc.x = ev->x;
-        wc.y = ev->y;
-        wc.width = ev->width;
-        wc.height = ev->height;
-        wc.border_width = ev->border_width;
-
-        XConfigureWindow(dpy, ev->window, (unsigned int)ev->value_mask, &wc);
-        XSync(dpy, 0);
-}
-
-void
-buttonpress(XEvent *e)
-{
-        XButtonPressedEvent *ev = &e->xbutton;
-}
 
 void
 grabkeys(Window *w)
 {
+        DEBUG("---Start: grabkeys---");
         for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
                 XGrabKey(
                         dpy,
@@ -479,24 +455,28 @@ grabkeys(Window *w)
                         GrabModeAsync,
                         GrabModeAsync
                 );
+        DEBUG("---End: grabkeys---");
 }
 
-void
-keypress(XEvent *e)
-{
-        XKeyEvent *ev = &e->xkey;
-        KeySym keysym = XkbKeycodeToKeysym(dpy, (KeyCode)ev->keycode, 0, 0);
+/*** Keybinding fuctions ***/
 
-        for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
-                if (keysym == keys[i].keysym
-                    && ev->state == (keys[i].modmask)
-                    && keys[i].f)
-                        keys[i].f(&(keys[i].arg));
+void
+killclient(Arg *arg)
+{
+        DEBUG("---Start: killclient---");
+        if (!selc)
+                return;
+
+        XGrabServer(dpy);
+        XKillClient(dpy, selc->win);
+        XUngrabServer(dpy);
+        DEBUG("---End: killclient---");
 }
 
 void
 spawn(Arg *arg)
 {
+        DEBUG("---Start: spawn---");
         // TODO: Rad about fork(), dup2(), etc. and rework if neccessary
         if (fork() == 0) {
                 if (dpy)
@@ -507,22 +487,106 @@ spawn(Arg *arg)
                 perror(" failed");
                 exit(EXIT_SUCCESS);
         }
+        DEBUG("---End: spawn---");
 }
 
 void
-test(Arg *arg)
+cycletag(Arg *arg)
 {
-        printf("%s\n", (char*)arg->v);
-        fflush(NULL);
+
+}
+
+void cycleclient(Arg *arg)
+{
+        DEBUG("---Start: cycleclient---");
+        if (!selc)
+                return;
+
+        Tag *t = currenttag(selc->m);
+        if  (t->clientnum < 2)
+                return;
+
+        Client *tofocus = NULL;
+
+        if (arg->i > 0) {
+                // Focus to next element or to first in stack
+                tofocus = selc->next;
+                if (!tofocus)
+                        tofocus = t->clients;
+        } else {
+                // Focus to previous element or last in the stack
+                tofocus = selc->prev;
+                if (!tofocus)
+                        for (tofocus = selc; tofocus->next; tofocus = tofocus->next);
+
+        }
+        focusc(tofocus);
+        DEBUG("---End: cycleclient---");
 }
 
 void
-run()
+focustag(Arg *arg)
 {
-        XEvent e;
-        while(!XNextEvent(dpy, &e))
-                if(handler[e.type])
-                        handler[e.type](&e);
+        DEBUG("---Start: focustag---");
+        unsigned int tagtofocus = arg->ui - 1;
+        if (tagtofocus == selmon->tag)
+                return;
+
+        selmon->tag = tagtofocus;
+        Tag *t = currenttag(selmon);
+        selc = t->focusclients;
+
+        arrangemon(selmon);
+        focus();
+        DEBUG("---End: focustag---");
+
+}
+
+/*** Util functions ***/
+
+Client*
+wintoclient(Window w)
+{
+        DEBUG("---Start: wintoclient---");
+        Monitor *m;
+        Client *c;
+        for (m = mons; m; m = m->next)
+                for (int i = 0; i < tags_num; ++i)
+                        for (c = m->tags[i].clients; c; c = c->next)
+                                if (c->win == w) {
+                                        return c;
+                                        DEBUG("---End: wintoclient successfully---");
+                                }
+
+        DEBUG("---End: wintoclient with NULL---");
+
+        return NULL;
+}
+
+Tag *
+currenttag(Monitor *m)
+{
+        if (!m)
+                m = selmon;
+        if (!selmon)
+                return NULL;
+
+        return &m->tags[m->tag];
+}
+
+int
+wm_detected(Display *dpy, XErrorEvent *ee)
+{
+        die("Different WM already running", 2);
+        // Ignored
+        return 0;
+}
+
+void
+die(char* msg, int exit_code)
+{
+        fprintf(stderr, "Kisswm [ERROR]: %s\n", msg);
+        exit(exit_code);
 }
 
 void
@@ -549,9 +613,6 @@ updatemons()
         m->tags = malloc(tags_bytes);
         memset(m->tags, 0, tags_bytes);
 
-        printf("Tags: %lu\n", tags_num);
-        printf("Tags size: %lu\n", tags_bytes);
-
         mons = m;
         selmon = m;
 }
@@ -570,28 +631,15 @@ setup()
         updatemons();
 }
 
-int
-onxerror(Display *dpy, XErrorEvent *ee)
-{
-        printf("Error occured!\n");
-        fflush(NULL);
-        return 0;
-}
-
-int
-wm_detected(Display *dpy, XErrorEvent *ee)
-{
-        die("Different WM already running", 2);
-        // Ignored
-        return 0;
-}
-
 void
-die(char* msg, int exit_code)
+run()
 {
-        fprintf(stderr, "Kisswm [ERROR]: %s\n", msg);
-        exit(exit_code);
+        XEvent e;
+        while(!XNextEvent(dpy, &e))
+                if(handler[e.type])
+                        handler[e.type](&e);
 }
+
 
 int main()
 {
