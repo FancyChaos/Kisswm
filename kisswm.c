@@ -28,8 +28,8 @@ struct Client {
         Window win;
         Monitor *m;
         Tag *tag;
-        Client *next;
-        Client *focusnext;
+        Client *next, *prev;
+        Client *nextfocus, *prevfocus;
         int y;
         int x;
         int width;
@@ -38,9 +38,11 @@ struct Client {
 };
 
 struct Tag {
+        int clientnum;
         Client *clients;
         Client *focusclients;
-        int clientnum;
+        // Fullscreen client
+        Client *fsclient;
 };
 
 struct Monitor {
@@ -55,6 +57,9 @@ struct Monitor {
 
 void test(Arg*);
 void spawn(Arg*);
+void focustag(Arg*);
+void cycletag(Arg*);
+void cycleclient(Arg*);
 void killclient(Arg*);
 void closeclient(Window);
 void die(char*, int);
@@ -66,7 +71,8 @@ void attach(Client*);
 void detach(Client*);
 void focusattach(Client*);
 void focusdetach(Client*);
-void focus(Client*);
+void focusc(Client*);
+void focus();
 void arrange(Monitor*);
 void arrangemon(Monitor*);
 void run();
@@ -103,6 +109,7 @@ Client *selc;
 void
 killclient(Arg *arg)
 {
+        printf("Killing client: %p\n", selc);
         if (!selc)
                 return;
 
@@ -141,6 +148,53 @@ wintoclient(Window w)
 }
 
 void
+focustag(Arg *arg)
+{
+        unsigned int tagtofocus = arg->ui - 1;
+        if (tagtofocus == selmon->tag)
+                return;
+
+        selmon->tag = tagtofocus;
+        printf("Focusing Tag %lu now\n", tagtofocus);
+        arrangemon(selmon);
+        printf("Done focusing\n");
+
+}
+
+void
+cycletag(Arg *arg)
+{
+
+}
+
+void cycleclient(Arg *arg)
+{
+        if (!selc)
+                return;
+
+        Tag *t = currenttag(selc->m);
+        if  (t->clientnum < 2)
+                return;
+
+        Client *tofocus = NULL;
+
+        if (arg->i > 0) {
+                // Focus to next element or to first in stack
+                tofocus = selc->next;
+                if (!tofocus)
+                        tofocus = t->clients;
+        } else {
+                // Focus to previous element or last in the stack
+                tofocus = selc->prev;
+                if (!tofocus)
+                        for (tofocus = selc; tofocus->next; tofocus = tofocus->next);
+
+        }
+        focusc(tofocus);
+
+}
+
+void
 closeclient(Window w)
 {
         Client *c = selc->win == w ? selc : NULL;
@@ -150,17 +204,61 @@ closeclient(Window w)
         Monitor *m = c->m;
         Tag *t = currenttag(m);
 
-        t->clientnum -= 1;
+        printf("Selc before delete: %p\n", selc);
+
         detach(c);
         focusdetach(c);
-        printf("Selc after delete: %p\n", selc);
-        arrangemon(m);
-        printf("Deleted client: %p\n", c);
         free(c);
+
+        printf("Selc after delete: %p\n", selc);
+        printf("Deleted client: %p\n", c);
+        arrangemon(m);
 
         // TODO: What does this do exactly? (DWM)
         XEvent ev;
         while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
+}
+
+void
+focus()
+{
+        // TODO: Set netatom NetActiveWindow (XChangeProperty)
+        XSetInputFocus(dpy, selc->win, RevertToPointerRoot, CurrentTime);
+}
+
+void
+focusc(Client *c)
+{
+        if (!c)
+                return;
+
+        Tag *t = currenttag(c->m);
+        if (!t)
+                return;
+
+        if (c == t->focusclients) {
+                selc = c;
+                selmon = c->m;
+                focus();
+                return;
+        }
+
+        if (c->prevfocus)
+                c->prevfocus->nextfocus = c->nextfocus;
+        if (c->nextfocus)
+                c->nextfocus->prevfocus = c->prevfocus;
+
+        t->focusclients->nextfocus = c;
+        c->prevfocus = t->focusclients;
+
+        c->nextfocus = NULL;
+
+        t->focusclients = c;
+
+        selc = c;
+        selmon = c->m;
+
+        focus();
 }
 
 void
@@ -170,55 +268,91 @@ focusattach(Client *c)
         if (!t)
                 return;
 
-        printf("Attaching Client to Tag: %p\n", t);
-        selmon = c->m;
+        c->nextfocus = NULL;
+        c->prevfocus = t->focusclients;
+
+        if (c->prevfocus)
+                c->prevfocus->nextfocus = c;
+
         selc = c;
-        Client *beforefocus = t->focusclients;
-        if (t->clientnum > 1 && beforefocus)
-                c->focusnext = beforefocus;
+        selmon = c->m;
         t->focusclients = c;
-        printf("Client Attached: %p\n", t->focusclients);
+
+        printf("Main Focus client: %p\n", t->focusclients);
+        for (Client *f = t->focusclients; f; f = f->prevfocus) {
+                printf("Focus client: %p\n", f);
+        }
 
 }
 
 void
 focusdetach(Client *c)
 {
-    Tag *t = currenttag(c->m);
-    if (!t)
-            return;
+        Tag *t = currenttag(c->m);
+        if (!t)
+                return;
 
-    t->focusclients = c->focusnext;
-    selc = t->focusclients;
-    c->focusnext = NULL;
+        if (c == t->focusclients)
+                t->focusclients = c->prevfocus;
+        if (c == selc) {
+                selc = c->prevfocus;
+                selmon = c->m;
+        }
+
+        if (!c->prevfocus)
+                return;
+
+        c->prevfocus->nextfocus = c->nextfocus;
+
+        c->prevfocus = c->nextfocus = NULL;
 }
 
 void
 detach(Client *c)
 {
-        Client **todetach;
-        for (todetach = &c->m->tags[c->m->tag].clients; *todetach && *todetach != c; todetach = &(*todetach)->next);
-        *todetach = c->next;
-        // TODO: Maybe set c->next to NULL?
-        c->next = NULL;
+        Tag *t = currenttag(c->m);
+        if (!t)
+                return;
+        t->clientnum -= 1;
+
+        // If this was the last open client on the tag
+        if (!t->clientnum) {
+                t->clients = NULL;
+                c->next = c->prev = NULL;
+                return;
+        }
+
+        if (c->next)
+                c->next->prev = c->prev;
+
+        if (c->prev)
+                c->prev->next = c->next;
+        else
+                // Detaching first client
+                t->clients = c->next;
 }
 
 void
 attach(Client *c)
 {
+        Tag *t = currenttag(c->m);
+        if (!t)
+                return;
+        t->clientnum += 1;
+
         c->next = NULL;
+        c->prev = NULL;
 
-        Client **lastc;
-        for(lastc = &c->m->tags[c->m->tag].clients; *lastc; lastc = &(*lastc)->next);
-        *lastc = c;
-}
+        // Only 1 client (This one)
+        if (t->clientnum == 1) {
+                t->clients = c;
+                return;
+        }
 
-void
-focus(Client *c)
-{
-        // Focus client
-        // TODO: Set netatom NetActiveWindow (XChangeProperty)
-        XSetInputFocus(dpy, c->win, RevertToPointerRoot, CurrentTime);
+        Client *lastc;
+        for (lastc = t->clients; lastc->next; lastc = lastc->next);
+        lastc->next = c;
+        c->prev = lastc;
 }
 
 void
@@ -245,6 +379,8 @@ arrangemon(Monitor *m)
 {
 
         // Only arrange current focused Tag of the monitor
+        // TODO: Hide windows which not on  the current tag
+        // Maybe save what the previous tag was and only hide those (performance)
         Tag *t = currenttag(m);
         if (t && !t->clientnum)
                 return;
@@ -259,35 +395,25 @@ arrangemon(Monitor *m)
         int setheight = m->height;
         int setx = m->x;
 
-        printf("Clientnum: %d\n", t->clientnum);
-        printf("Width: %d, Height: %d, setx: %d\n", setwidth, setheight, setx);
-
         int clientpos = 0;
         for (Client *c = t->clients; c; c = c->next) {
                 c->width = wc.width = setwidth;
                 c->height = wc.height = setheight;
                 c->x = wc.x = setx = (c->width * clientpos++);
 
-                printf("Client: %p\n", c);
-                printf("Resized Client: %dx%d, %d.%d\n", c->width, c->height, c->x, c->y);
-
                 XConfigureWindow(dpy, c->win, CWX|CWWidth|CWHeight, &wc);
         }
 
 
-        Tag *selectedtag = currenttag(selmon);
-        printf("Selectedtag: %p\n", selectedtag);
-        printf("Current mon tag: %p\n", t);
-        printf("Focusclients: %p\n", selectedtag->focusclients);
-        focus(selectedtag->focusclients);
+        focus();
         XSync(dpy, 0);
-        printf("Done arranging\n");
 }
 
 
 void
 maprequest(XEvent *e)
 {
+	// TODO: Denie if 10 or more clients are on tag
         XMapRequestEvent *ev = &e->xmaprequest;
         XWindowAttributes wa;
 
@@ -295,12 +421,12 @@ maprequest(XEvent *e)
                 return;
 
         Client *c = malloc(sizeof(Client));
+        c->next = c->prev = c->nextfocus = NULL;
         c->win = ev->window;
         c->m = selmon;
         Tag *t = currenttag(c->m);
         c->tag = t;
 
-        t->clientnum += 1;
         attach(c);
         focusattach(c);
 

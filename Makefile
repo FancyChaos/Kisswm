@@ -17,6 +17,6 @@ uninstall:
 	rm -rf $(DESTDIR)$(PREFIX)/bin/kisswm
 
 clean:
-	rm -f *.o kisswm
+	rm -f *.o kisswm kisswm.core
 
 .PHONY: all install uninstall clean
