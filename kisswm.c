@@ -158,7 +158,7 @@ maprequest(XEvent *e)
         XMapWindow(dpy, c->win);
         grabkeys(&(c->win));
 
-        focus(selc);
+        focus();
 
         DEBUG("---End: MapRequest---");
 }
