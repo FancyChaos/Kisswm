@@ -61,6 +61,8 @@ struct Monitor {
         int width;
 };
 
+void maptag(Tag*);
+void unmaptag(Tag*);
 void spawn(Arg*);
 void focustag(Arg*);
 void cycletag(Arg*);
@@ -104,7 +106,7 @@ void (*handler[LASTEvent])(XEvent*) = {
 
 #include "kisswm.h"
 
-unsigned long tags_num = sizeof(tags)/sizeof(tags[0]);
+unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
 
 Display *dpy;
 Window root;
@@ -224,6 +226,20 @@ onxerror(Display *dpy, XErrorEvent *ee)
 /*** WM state changing functions ***/
 
 void
+unmaptag(Tag *t)
+{
+        for(Client *c = t->clients; c; c = c->next)
+                XUnmapWindow(dpy, c->win);
+}
+
+void
+maptag(Tag *t)
+{
+        for(Client *c = t->clients; c; c = c->next)
+                XMapWindow(dpy, c->win);
+}
+
+void
 closeclient(Window w)
 {
         DEBUG("---Start: closeclient---");
@@ -234,7 +250,6 @@ closeclient(Window w)
         DEBUG("---Client will no be closed---");
 
         Monitor *m = c->m;
-        Tag *t = currenttag(m);
 
         detach(c);
         focusdetach(c);
@@ -477,6 +492,7 @@ void
 spawn(Arg *arg)
 {
         DEBUG("---Start: spawn---");
+
         // TODO: Rad about fork(), dup2(), etc. and rework if neccessary
         if (fork() == 0) {
                 if (dpy)
@@ -493,12 +509,39 @@ spawn(Arg *arg)
 void
 cycletag(Arg *arg)
 {
+        DEBUG("---Start: cycletag---");
+        if (!(arg->i == 1) && !(arg->i == -1))
+                return;
 
+        // Chill for a bit
+        usleep(10*1000);
+
+        // New tag
+        unsigned int tn = 0;
+
+        // Focus the next tag
+        if (arg->i == 1) {
+                tn = selmon->tag + 2;
+                if (tn > tags_num)
+                        tn = 1;
+        } else {
+                tn = selmon->tag;
+                if (tn == 0)
+                        tn = tags_num;
+        }
+
+        Arg a = { .ui = tn };
+        focustag(&a);
+
+        DEBUG("---Stop: cycletag---");
 }
 
 void cycleclient(Arg *arg)
 {
         DEBUG("---Start: cycleclient---");
+        if (!(arg->i == 1) && !(arg->i == -1))
+                return;
+
         if (!selc)
                 return;
 
@@ -506,9 +549,12 @@ void cycleclient(Arg *arg)
         if  (t->clientnum < 2)
                 return;
 
+        // Chill for a bit
+        usleep(10*1000);
+
         Client *tofocus = NULL;
 
-        if (arg->i > 0) {
+        if (arg->i == 1) {
                 // Focus to next element or to first in stack
                 tofocus = selc->next;
                 if (!tofocus)
@@ -520,6 +566,7 @@ void cycleclient(Arg *arg)
                         for (tofocus = selc; tofocus->next; tofocus = tofocus->next);
 
         }
+
         focusc(tofocus);
         DEBUG("---End: cycleclient---");
 }
@@ -528,19 +575,34 @@ void
 focustag(Arg *arg)
 {
         DEBUG("---Start: focustag---");
+        if (!arg->ui)
+                return;
+
         unsigned int tagtofocus = arg->ui - 1;
         if (tagtofocus == selmon->tag)
                 return;
 
+        // Get current tag
+        Tag *tc = currenttag(selmon);
+        // Update current tag of the current monitor
         selmon->tag = tagtofocus;
-        Tag *t = currenttag(selmon);
-        selc = t->focusclients;
+        // Get new tag
+        Tag *tn = currenttag(selmon);
 
+        // Arrange the new clients on the newly selected tag
         arrangemon(selmon);
+        // Unmap current clients
+        unmaptag(tc);
+        // Map new clients
+        maptag(tn);
+
+        // Set the current selected client to the current one on the tag
+        selc = tn->focusclients;
+
         focus();
         DEBUG("---End: focustag---");
-
 }
+
 
 /*** Util functions ***/
 

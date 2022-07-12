@@ -2,18 +2,20 @@ char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=28:antialias=true";
 
 char *term[] = { "st", NULL };
-//static char dmenumon[2] = "0"; /* component of dmenucmd, manipulated in spawn() */
-//static const char *dmenucmd[] = { "dmenu_run", "-m", dmenumon, "-fn", dmenufont, "-nb", col_gray1, "-nf", col_gray3, "-sb", col_cyan, "-sf", col_gray4, NULL };
 static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
 
 Key keys[] = {
         { Mod4Mask,                     XK_Return,              spawn,                  {.v = term} },
         { Mod4Mask,                     XK_d,                   spawn,                  {.v = dmenucmd} },
-        { Mod4Mask,                     XK_q,                   killclient,             {0 } },
-        { Mod4Mask,                     XK_j,                   cycleclient,            {.i = +1} },
-        { Mod4Mask,                     XK_Left,                cycleclient,            {.i = +1} },
-        { Mod4Mask,                     XK_k,                   cycleclient,            {.i = -1} },
-        { Mod4Mask,                     XK_Right,               cycleclient,            {.i = -1} },
+        { Mod4Mask,                     XK_q,                   killclient,             {0} },
+
+        { Mod4Mask,                     XK_j,                   cycleclient,            {.i = -1} },
+        { Mod4Mask,                     XK_Left,                cycleclient,            {.i = -1} },
+        { Mod4Mask,                     XK_k,                   cycleclient,            {.i = +1} },
+        { Mod4Mask,                     XK_Right,               cycleclient,            {.i = +1} },
+
+        { Mod4Mask|ControlMask,         XK_Left,                cycletag,               {.i = -1} },
+        { Mod4Mask|ControlMask,         XK_Right,               cycletag,               {.i = 1} },
 
         /* Tag keys */
         { Mod4Mask,                     XK_1,                   focustag,               {.ui = 1} },
