@@ -64,6 +64,7 @@ struct Monitor {
 void maptag(Tag*);
 void unmaptag(Tag*);
 void spawn(Arg*);
+void movewindow(Arg*);
 void focustag(Arg*);
 void cycletag(Arg*);
 void cycleclient(Arg*);
@@ -426,15 +427,10 @@ arrangemon(Monitor *m)
         DEBUG("---Start: arrangemon---");
 
         // Only arrange current focused Tag of the monitor
-        // TODO: Hide windows which not on  the current tag
-        // Maybe save what the previous tag was and only hide those (performance)
         Tag *t = currenttag(m);
         if (t && !t->clientnum)
                 return;
 
-        // TODO: Maybe call it arrangetag instead (We only arrange an active tag and it's client)
-        // TODO: How to hide client/windows which are not an this tag/mon? Maybe I still need a big ass client linked list
-        // Maybe we can iterate to all clients of a mon by looping through the tags first
         XWindowChanges wc;
 
         int setwidth = m->width / t->clientnum;
@@ -504,6 +500,62 @@ spawn(Arg *arg)
                 exit(EXIT_SUCCESS);
         }
         DEBUG("---End: spawn---");
+}
+
+void
+movewindow(Arg *arg)
+{
+        DEBUG("---Start: movewindow---");
+        Tag *t = currenttag(selmon);
+
+        // Client to move
+        Client *ctm = t->focusclients;
+
+        // Move to right
+        if (arg->i == 1) {
+                if (!ctm->next)
+                        return;
+
+                // Client to switch
+                Client *cts = ctm->next;
+
+                if (ctm->prev)
+                        ctm->prev->next = cts;
+                if (cts->next)
+                        cts->next->prev = ctm;
+
+                ctm->next = cts->next;
+                cts->prev = ctm->prev;
+                ctm->prev = cts;
+                cts->next = ctm;
+
+                if (ctm == t->clients)
+                        t->clients = cts;
+        }
+        // Move to left
+        else {
+                if (!ctm->prev)
+                        return;
+
+                // Client to switch
+                Client *cts = ctm->prev;
+
+                if (ctm->next)
+                        ctm->next->prev = cts;
+                if (cts->prev)
+                        cts->prev->next = ctm;
+
+                ctm->prev = cts->prev;
+                cts->next = ctm->next;
+                ctm->next = cts;
+                cts->prev = ctm;
+
+                if (cts == t->clients)
+                        t->clients = ctm;
+        }
+
+        arrangemon(selmon);
+        DEBUG("---End: movewindow---");
 }
 
 void

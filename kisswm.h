@@ -15,7 +15,14 @@ Key keys[] = {
         { Mod4Mask,                     XK_Right,               cycleclient,            {.i = +1} },
 
         { Mod4Mask|ControlMask,         XK_Left,                cycletag,               {.i = -1} },
+        { Mod4Mask|ControlMask,         XK_j,                   cycletag,               {.i = -1} },
         { Mod4Mask|ControlMask,         XK_Right,               cycletag,               {.i = 1} },
+        { Mod4Mask|ControlMask,         XK_k,                   cycletag,               {.i = 1} },
+
+        { Mod4Mask|ShiftMask,           XK_Left,                movewindow,             {.i = -1} },
+        { Mod4Mask|ShiftMask,           XK_j,                   movewindow,             {.i = -1} },
+        { Mod4Mask|ShiftMask,           XK_Right,               movewindow,             {.i = 1} },
+        { Mod4Mask|ShiftMask,           XK_k,                   movewindow,             {.i = 1} },
 
         /* Tag keys */
         { Mod4Mask,                     XK_1,                   focustag,               {.ui = 1} },
