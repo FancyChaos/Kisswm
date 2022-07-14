@@ -63,12 +63,13 @@ struct Monitor {
 
 void mapclient(Client*);
 void unmapclient(Client*);
-void maptag(Tag*);
+void maptag(Tag*, int);
 void unmaptag(Tag*);
 void spawn(Arg*);
 void mvwintotag(Arg*);
 void followwintotag(Arg*);
 void mvwin(Arg*);
+void fullscreen(Arg*);
 void focustag(Arg*);
 void cycletag(Arg*);
 void cycleclient(Arg*);
@@ -80,6 +81,7 @@ Client* wintoclient(Window);
 Tag* currenttag(Monitor*);
 void updatemons();
 Client* _mvwintotag(unsigned int);
+void togglefullscreen(Client*);
 void attach(Client*);
 void detach(Client*);
 void focusattach(Client*);
@@ -160,6 +162,7 @@ maprequest(XEvent *e)
 
         attach(c);
         focusattach(c);
+        selc = c;
 
         arrangemon(c->m);
 
@@ -231,21 +234,29 @@ onxerror(Display *dpy, XErrorEvent *ee)
 
 /*** WM state changing functions ***/
 
+void
+togglefullscreen(Client *ct)
+{
+        Tag *t = ct->tag;
+
+        // set fullscreen client
+        t->fsclient = (t->fsclient) ? NULL : ct;
+
+        for(Client *c = t->clients; c; c = c->next) {
+                if(c!=ct) {
+                        if(t->fsclient) {
+                                unmapclient(c);
+                        } else {
+                                mapclient(c);
+                        }
+                }
+        }
+}
+
 Client*
 _mvwintotag(unsigned int tag)
 {
         DEBUG("---Start: _mvwintotag---");
-        /* First Plan
-         * - Get current tag
-         * - Get chosen tag (arg->ui-1)
-         * - Get current client
-         * - detach client from tag
-         * - focusdetach client from tag
-         * - Attach client to chosen tag
-         * - focusattach client to chosen tag
-         * - Done (I Hope)
-         */
-
         if (tag < 1 || tag > tags_num)
                 return NULL;
 
@@ -259,12 +270,19 @@ _mvwintotag(unsigned int tag)
 
         // Detach client from current tag
         detach(ctm);
+
+        // Detach client from focus
+        if (ctm == selc) {
+                selc = ctm->prevfocus;
+        }
         focusdetach(ctm);
 
         // Assign client to chosen tag
         ctm->tag = tn;
         attach(ctm);
         focusattach(ctm);
+
+        // Dont set selc because we do not follow the client
 
         DEBUG("---End: _mvwintotag---");
         return ctm;
@@ -294,8 +312,17 @@ unmaptag(Tag *t)
 }
 
 void
-maptag(Tag *t)
+maptag(Tag *t, int check_fullscreen)
 {
+        // If check_fullscreen is 1, only map a fullscreen window if present
+        if (check_fullscreen && t->fsclient) {
+                for(Client *c = t->clients; c; c = c->next)
+                        if(c == t->fsclient)
+                                mapclient(c);
+                return;
+        }
+
+        // Map every window if not fullscreen client is present
         for(Client *c = t->clients; c; c = c->next)
                 mapclient(c);
 }
@@ -312,11 +339,24 @@ closeclient(Window w)
 
         Monitor *m = c->m;
 
+
         detach(c);
+
+
+        // Detach client from focus
+        if (c == selc) {
+                selc = c->prevfocus;
+        }
         focusdetach(c);
+
+        // Reset fsclient
+        if (c->tag->fsclient == c)
+                togglefullscreen(c);
+
         free(c);
 
         arrangemon(m);
+
         focus();
 
         // TODO: What does this do exactly? (DWM)
@@ -387,8 +427,6 @@ focusattach(Client *c)
         if (c->prevfocus)
                 c->prevfocus->nextfocus = c;
 
-        selc = c;
-        selmon = c->m;
         t->focusclients = c;
 
         DEBUG("---End: focusattach---");
@@ -405,10 +443,6 @@ focusdetach(Client *c)
 
         if (c == t->focusclients)
                 t->focusclients = c->prevfocus;
-        if (c == selc) {
-                selc = c->prevfocus;
-                selmon = c->m;
-        }
 
         if (!c->prevfocus)
                 return;
@@ -496,6 +530,19 @@ arrangemon(Monitor *m)
 
         XWindowChanges wc;
 
+        // We have a fullscreen client on the tag
+        if (t->fsclient) {
+                t->fsclient->width = wc.width = m->width;
+                t->fsclient->height = wc.height = m->height;
+                t->fsclient->x = wc.x = 0;
+                t->fsclient->y = wc.y = 0;
+
+                XConfigureWindow(dpy, t->fsclient->win, CWX|CWY|CWWidth|CWHeight, &wc);
+                XSync(dpy, 0);
+                DEBUG("---End: arrangemon (FULLSCREEN)---");
+                return;
+        }
+
         int setwidth = m->width / t->clientnum;
         int setheight = m->height;
         int setx = m->x;
@@ -505,6 +552,7 @@ arrangemon(Monitor *m)
                 c->width = wc.width = setwidth;
                 c->height = wc.height = setheight;
                 c->x = wc.x = setx = (c->width * clientpos++);
+                c->y = wc.y = 0;
 
                 XConfigureWindow(dpy, c->win, CWX|CWWidth|CWHeight, &wc);
         }
@@ -552,6 +600,11 @@ spawn(Arg *arg)
 {
         DEBUG("---Start: spawn---");
 
+        // Dont allow on fullscreen
+        Tag *t = currenttag(selmon);
+        if(t && t->fsclient)
+                return;
+
         // TODO: Rad about fork(), dup2(), etc. and rework if neccessary
         if (fork() == 0) {
                 if (dpy)
@@ -566,9 +619,29 @@ spawn(Arg *arg)
 }
 
 void
+fullscreen(Arg* arg)
+{
+        Tag *t = currenttag(selmon);
+        if (!t->clientnum || !t->focusclients)
+                return;
+
+        togglefullscreen(t->focusclients);
+        if (t->fsclient)
+                focusc(t->fsclient);
+
+        arrangemon(selmon);
+}
+
+void
 mvwintotag(Arg *arg)
 {
         DEBUG("---Start: mvwintotag---");
+
+        // Dont allow on fullscreen
+        Tag *t = currenttag(selmon);
+        if(t && t->fsclient)
+                return;
+
         if (arg->ui < 1 || arg->ui > tags_num)
                 return;
 
@@ -581,7 +654,8 @@ mvwintotag(Arg *arg)
         // Arrange the monitor
         arrangemon(selmon);
 
-        // TODO: Figure out if focusc is needed at all
+        // Focus previous client
+        focus();
 
         DEBUG("---End: mvwintotag---");
 }
@@ -590,6 +664,12 @@ void
 followwintotag(Arg *arg)
 {
         DEBUG("---Start: followwintotag---");
+
+        // Dont allow on fullscreen
+        Tag *t = currenttag(selmon);
+        if(t && t->fsclient)
+                return;
+
         if (!(arg->i == 1) && !(arg->i == -1))
                 return;
 
@@ -618,10 +698,14 @@ void
 mvwin(Arg *arg)
 {
         DEBUG("---Start: mvwin---");
-        if (!(arg->i == 1) && !(arg->i == -1))
+
+        // Dont allow on fullscreen
+        Tag *t = currenttag(selmon);
+        if(t && t->fsclient)
                 return;
 
-        Tag *t = currenttag(selmon);
+        if (!(arg->i == 1) && !(arg->i == -1))
+                return;
 
         // Client to move
         Client *ctm = t->focusclients;
@@ -706,13 +790,18 @@ cycletag(Arg *arg)
 void cycleclient(Arg *arg)
 {
         DEBUG("---Start: cycleclient---");
+
+        // Dont allow on fullscreen
+        Tag *t = currenttag(selmon);
+        if(t && t->fsclient)
+                return;
+
         if (!(arg->i == 1) && !(arg->i == -1))
                 return;
 
         if (!selc)
                 return;
 
-        Tag *t = currenttag(selc->m);
         if  (t->clientnum < 2)
                 return;
 
@@ -761,7 +850,7 @@ focustag(Arg *arg)
         // Unmap current clients
         unmaptag(tc);
         // Map new clients
-        maptag(tn);
+        maptag(tn, 1);
 
         // Set the current selected client to the current one on the tag
         selc = tn->focusclients;

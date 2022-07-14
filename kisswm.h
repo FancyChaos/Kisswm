@@ -13,6 +13,7 @@ Key keys[] = {
         { MODKEY,                     XK_Return,              spawn,                  {.v = term} },
         { MODKEY,                     XK_d,                   spawn,                  {.v = dmenucmd} },
         { MODKEY,                     XK_q,                   killclient,             {0} },
+        { MODKEY,                     XK_f,                   fullscreen,             {0} },
 
         { MODKEY,                     XK_j,                   cycleclient,            {.i = -1} },
         { MODKEY,                     XK_Left,                cycleclient,            {.i = -1} },
