@@ -61,10 +61,14 @@ struct Monitor {
         int width;
 };
 
+void mapclient(Client*);
+void unmapclient(Client*);
 void maptag(Tag*);
 void unmaptag(Tag*);
 void spawn(Arg*);
-void movewindow(Arg*);
+void mvwintotag(Arg*);
+void followwintotag(Arg*);
+void mvwin(Arg*);
 void focustag(Arg*);
 void cycletag(Arg*);
 void cycleclient(Arg*);
@@ -75,6 +79,7 @@ void setup();
 Client* wintoclient(Window);
 Tag* currenttag(Monitor*);
 void updatemons();
+Client* _mvwintotag(unsigned int);
 void attach(Client*);
 void detach(Client*);
 void focusattach(Client*);
@@ -226,18 +231,73 @@ onxerror(Display *dpy, XErrorEvent *ee)
 
 /*** WM state changing functions ***/
 
+Client*
+_mvwintotag(unsigned int tag)
+{
+        DEBUG("---Start: _mvwintotag---");
+        /* First Plan
+         * - Get current tag
+         * - Get chosen tag (arg->ui-1)
+         * - Get current client
+         * - detach client from tag
+         * - focusdetach client from tag
+         * - Attach client to chosen tag
+         * - focusattach client to chosen tag
+         * - Done (I Hope)
+         */
+
+        if (tag < 1 || tag > tags_num)
+                return NULL;
+
+        // Current Tag
+        Tag *tc = currenttag(selmon);
+        // New Tag
+        Tag *tn = &selmon->tags[tag - 1];
+
+        // Client to move
+        Client *ctm = tc->focusclients;
+
+        // Detach client from current tag
+        detach(ctm);
+        focusdetach(ctm);
+
+        // Assign client to chosen tag
+        ctm->tag = tn;
+        attach(ctm);
+        focusattach(ctm);
+
+        DEBUG("---End: _mvwintotag---");
+        return ctm;
+}
+
+void
+mapclient(Client *c)
+{
+        if (!c)
+                return;
+        XMapWindow(dpy, c->win);
+}
+
+void
+unmapclient(Client *c)
+{
+        if (!c)
+                return;
+        XUnmapWindow(dpy, c->win);
+}
+
 void
 unmaptag(Tag *t)
 {
         for(Client *c = t->clients; c; c = c->next)
-                XUnmapWindow(dpy, c->win);
+                unmapclient(c);
 }
 
 void
 maptag(Tag *t)
 {
         for(Client *c = t->clients; c; c = c->next)
-                XMapWindow(dpy, c->win);
+                mapclient(c);
 }
 
 void
@@ -283,7 +343,7 @@ focusc(Client *c)
         if (!c)
                 return;
 
-        Tag *t = currenttag(c->m);
+        Tag *t = c->tag;
         if (!t)
                 return;
 
@@ -317,7 +377,7 @@ void
 focusattach(Client *c)
 {
         DEBUG("---Start: focusattach---");
-        Tag *t = currenttag(c->m);
+        Tag *t = c->tag;
         if (!t)
                 return;
 
@@ -339,7 +399,7 @@ void
 focusdetach(Client *c)
 {
         DEBUG("---Start: focusdetach---");
-        Tag *t = currenttag(c->m);
+        Tag *t = c->tag;
         if (!t)
                 return;
 
@@ -363,7 +423,7 @@ void
 detach(Client *c)
 {
         DEBUG("---Start: detach---");
-        Tag *t = currenttag(c->m);
+        Tag *t = c->tag;
         if (!t)
                 return;
         t->clientnum -= 1;
@@ -383,6 +443,9 @@ detach(Client *c)
         else
                 // Detaching first client
                 t->clients = c->next;
+
+        c->next = c->prev = NULL;
+
         DEBUG("---End: detach---");
 }
 
@@ -390,7 +453,7 @@ void
 attach(Client *c)
 {
         DEBUG("---Start: attach---");
-        Tag *t = currenttag(c->m);
+        Tag *t = c->tag;
         if (!t)
                 return;
         t->clientnum += 1;
@@ -503,9 +566,61 @@ spawn(Arg *arg)
 }
 
 void
-movewindow(Arg *arg)
+mvwintotag(Arg *arg)
 {
-        DEBUG("---Start: movewindow---");
+        DEBUG("---Start: mvwintotag---");
+        if (arg->ui < 1 || arg->ui > tags_num)
+                return;
+
+        // Returns client which was moved
+        Client *c = _mvwintotag(arg->ui);
+
+        //Unmap moved client
+        unmapclient(c);
+
+        // Arrange the monitor
+        arrangemon(selmon);
+
+        // TODO: Figure out if focusc is needed at all
+
+        DEBUG("---End: mvwintotag---");
+}
+
+void
+followwintotag(Arg *arg)
+{
+        DEBUG("---Start: followwintotag---");
+        if (!(arg->i == 1) && !(arg->i == -1))
+                return;
+
+        // To which tag to move
+        unsigned int totag = 1;
+
+        // Follow window to right tag
+        if (arg->i == 1) {
+                if (selmon->tag == (tags_num - 1))
+                        return;
+                totag = selmon->tag + 2;
+        } else {
+                if (!selmon->tag)
+                        return;
+                totag = selmon->tag;
+        }
+
+        _mvwintotag(totag);
+
+        Arg a = { .ui = totag };
+        focustag(&a);
+        DEBUG("---End: followwintotag---");
+}
+
+void
+mvwin(Arg *arg)
+{
+        DEBUG("---Start: mvwin---");
+        if (!(arg->i == 1) && !(arg->i == -1))
+                return;
+
         Tag *t = currenttag(selmon);
 
         // Client to move
@@ -555,7 +670,7 @@ movewindow(Arg *arg)
         }
 
         arrangemon(selmon);
-        DEBUG("---End: movewindow---");
+        DEBUG("---End: mvwin---");
 }
 
 void
@@ -627,7 +742,7 @@ void
 focustag(Arg *arg)
 {
         DEBUG("---Start: focustag---");
-        if (!arg->ui)
+        if (arg->ui < 1 || arg->ui > tags_num)
                 return;
 
         unsigned int tagtofocus = arg->ui - 1;

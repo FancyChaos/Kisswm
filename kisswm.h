@@ -4,34 +4,40 @@ static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=28:antialia
 char *term[] = { "st", NULL };
 static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
 
+#define MODKEY Mod4Mask
+#define TAGKEYS(KEY,TAG) \
+        { MODKEY,                       KEY,      focustag,           {.ui = TAG} }, \
+        { MODKEY|ShiftMask,            KEY,      mvwintotag,         {.ui = TAG} }, \
+
 Key keys[] = {
-        { Mod4Mask,                     XK_Return,              spawn,                  {.v = term} },
-        { Mod4Mask,                     XK_d,                   spawn,                  {.v = dmenucmd} },
-        { Mod4Mask,                     XK_q,                   killclient,             {0} },
+        { MODKEY,                     XK_Return,              spawn,                  {.v = term} },
+        { MODKEY,                     XK_d,                   spawn,                  {.v = dmenucmd} },
+        { MODKEY,                     XK_q,                   killclient,             {0} },
 
-        { Mod4Mask,                     XK_j,                   cycleclient,            {.i = -1} },
-        { Mod4Mask,                     XK_Left,                cycleclient,            {.i = -1} },
-        { Mod4Mask,                     XK_k,                   cycleclient,            {.i = +1} },
-        { Mod4Mask,                     XK_Right,               cycleclient,            {.i = +1} },
+        { MODKEY,                     XK_j,                   cycleclient,            {.i = -1} },
+        { MODKEY,                     XK_Left,                cycleclient,            {.i = -1} },
+        { MODKEY,                     XK_k,                   cycleclient,            {.i = +1} },
+        { MODKEY,                     XK_Right,               cycleclient,            {.i = +1} },
+        
+        { MODKEY|ShiftMask,           XK_Left,                followwintotag,         {.i = -1} },
+        { MODKEY|ShiftMask,           XK_Right,               followwintotag,         {.i = 1} },
 
-        { Mod4Mask|ControlMask,         XK_Left,                cycletag,               {.i = -1} },
-        { Mod4Mask|ControlMask,         XK_j,                   cycletag,               {.i = -1} },
-        { Mod4Mask|ControlMask,         XK_Right,               cycletag,               {.i = 1} },
-        { Mod4Mask|ControlMask,         XK_k,                   cycletag,               {.i = 1} },
+        { MODKEY|ControlMask,         XK_Left,                cycletag,               {.i = -1} },
+        { MODKEY|ControlMask,         XK_j,                   cycletag,               {.i = -1} },
+        { MODKEY|ControlMask,         XK_Right,               cycletag,               {.i = 1} },
+        { MODKEY|ControlMask,         XK_k,                   cycletag,               {.i = 1} },
 
-        { Mod4Mask|ShiftMask,           XK_Left,                movewindow,             {.i = -1} },
-        { Mod4Mask|ShiftMask,           XK_j,                   movewindow,             {.i = -1} },
-        { Mod4Mask|ShiftMask,           XK_Right,               movewindow,             {.i = 1} },
-        { Mod4Mask|ShiftMask,           XK_k,                   movewindow,             {.i = 1} },
+        { MODKEY|ShiftMask,           XK_j,                   mvwin,             {.i = -1} },
+        { MODKEY|ShiftMask,           XK_k,                   mvwin,             {.i = 1} },
 
         /* Tag keys */
-        { Mod4Mask,                     XK_1,                   focustag,               {.ui = 1} },
-        { Mod4Mask,                     XK_2,                   focustag,               {.ui = 2} },
-        { Mod4Mask,                     XK_3,                   focustag,               {.ui = 3} },
-        { Mod4Mask,                     XK_4,                   focustag,               {.ui = 4} },
-        { Mod4Mask,                     XK_5,                   focustag,               {.ui = 5} },
-        { Mod4Mask,                     XK_6,                   focustag,               {.ui = 6} },
-        { Mod4Mask,                     XK_7,                   focustag,               {.ui = 7} },
-        { Mod4Mask,                     XK_8,                   focustag,               {.ui = 8} },
-        { Mod4Mask,                     XK_9,                   focustag,               {.ui = 9} },
+        TAGKEYS(                      XK_1,                                           1)
+        TAGKEYS(                      XK_2,                                           2)
+        TAGKEYS(                      XK_3,                                           3)
+        TAGKEYS(                      XK_4,                                           4)
+        TAGKEYS(                      XK_5,                                           5)
+        TAGKEYS(                      XK_6,                                           6)
+        TAGKEYS(                      XK_7,                                           7)
+        TAGKEYS(                      XK_8,                                           8)
+        TAGKEYS(                      XK_9,                                           9)
 };
