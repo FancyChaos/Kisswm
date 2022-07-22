@@ -2,13 +2,17 @@ include config.mk
 
 all: kisswm
 
-kisswm: kisswm.o
-	$(CC) kisswm.o -o kisswm $(LIBS)
+kisswm: kisswm.o util.o
+	$(CC) kisswm.o util.o -o kisswm $(LIBS)
 
 kisswm.o: kisswm.c kisswm.h
-	$(CC) -c kisswm.c $(CFLAGS)
+	$(CC) -c kisswm.c $(CFLAGS) -Wconversion -DDODEBUG
+
+util.o: util.c util.h
+	$(CC) -c util.c $(CFLAGS)
 
 install: kisswm
+	rm $(DESTDIR)$(PREFIX)/bin/kisswm
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp kisswm $(DESTDIR)$(PREFIX)/bin
 	chmod 755 $(DESTDIR)$(PREFIX)/bin/kisswm
@@ -17,6 +21,6 @@ uninstall:
 	rm -rf $(DESTDIR)$(PREFIX)/bin/kisswm
 
 clean:
-	rm -f *.o kisswm kisswm.core
+	rm -f *.o kisswm *.core
 
 .PHONY: all install uninstall clean

@@ -2,9 +2,15 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdarg.h>
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
 #include <X11/keysym.h>
+#include <X11/Xatom.h>
+#include <X11/Xutil.h>
+#include <X11/Xft/Xft.h>
+
+#include "util.h"
 
 #ifdef DODEBUG
         #define DEBUG(...) fprintf(stderr, "DEBUG: "__VA_ARGS__"\n")
@@ -29,6 +35,18 @@ typedef struct {
 typedef struct Monitor Monitor;
 typedef struct Client Client;
 typedef struct Tag Tag;
+typedef struct Barwin Barwin;
+typedef struct Colors Colors;
+
+struct Barwin {
+        Window w;
+        XftDraw *xdraw;
+};
+
+struct Colors {
+        XftColor black;
+        XftColor white;
+};
 
 struct Client {
         Window win;
@@ -53,6 +71,7 @@ struct Tag {
 
 struct Monitor {
         Monitor *next;
+        Barwin barwin;
         unsigned int tag;
         Tag *tags;
         int y;
@@ -60,6 +79,7 @@ struct Monitor {
         int height;
         int width;
 };
+
 
 void mapclient(Client*);
 void unmapclient(Client*);
@@ -75,7 +95,6 @@ void cycletag(Arg*);
 void cycleclient(Arg*);
 void killclient(Arg*);
 void closeclient(Window);
-void die(char*, int);
 void setup();
 Client* wintoclient(Window);
 Tag* currenttag(Monitor*);
@@ -97,16 +116,22 @@ int onxerror(Display*, XErrorEvent*);
 void buttonpress(XEvent*);
 void keypress(XEvent*);
 void configurenotify(XEvent*);
+void propertynotify(XEvent*);
 void configurerequest(XEvent*);
 void maprequest(XEvent*);
 void unmapnotify(XEvent*);
 void destroynotify(XEvent*);
+
+void updatebar();
+void populatebar();
+void createbar();
 
 void (*handler[LASTEvent])(XEvent*) = {
         [ButtonPress] = buttonpress,
         [KeyPress] = keypress,
         [ConfigureNotify] = configurenotify,
         [ConfigureRequest] = configurerequest,
+        [PropertyNotify] = propertynotify,
         [MapRequest] = maprequest,
         [UnmapNotify] = unmapnotify,
         [DestroyNotify] = destroynotify
@@ -114,12 +139,28 @@ void (*handler[LASTEvent])(XEvent*) = {
 
 #include "kisswm.h"
 
-unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
-
 Display *dpy;
 Window root;
 Monitor *mons, *selmon;
 Client *selc;
+
+XftDraw *xdraw;
+XftFont *xfont;
+XGlyphInfo xglyph;
+Colors xcolors;
+
+int screen;
+int sw;
+int sh;
+unsigned long colormap;
+Visual *visual;
+
+
+unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
+
+char *bartags;
+unsigned long bartagssize;
+char barstatus[256];
 
 
 /*** X11 Eventhandling ****/
@@ -183,6 +224,18 @@ configurenotify(XEvent *e)
 }
 
 void
+propertynotify(XEvent *e)
+{
+        DEBUG("---Start: PropertyNotify---");
+        XPropertyEvent *ev = &e->xproperty;
+
+        if ((ev->window == root) && (ev->atom == XA_WM_NAME))
+                updatebar();
+
+        DEBUG("---End: PropertyNotify---");
+}
+
+void
 configurerequest(XEvent *e)
 {
         DEBUG("---Start: ConfigureRequest---");
@@ -232,25 +285,157 @@ onxerror(Display *dpy, XErrorEvent *ee)
         return 0;
 }
 
+/*** Statusbar functions ***/
+
+void
+createbar()
+{
+        DEBUG("---Start: createbar---");
+        Monitor *m = NULL;
+        for (m = selmon; m; m = m->next) {
+                m->barwin.w = XCreateSimpleWindow(
+                        dpy,
+                        root,
+                        0,
+                        0,
+                        (unsigned int) selmon->width,
+                        (unsigned int) barheight,
+                        0,
+                        0,
+                        0);
+
+                m->barwin.xdraw = XftDrawCreate(
+                        dpy,
+                        selmon->barwin.w,
+                        visual,
+                        colormap);
+
+                XMapWindow(dpy, m->barwin.w);
+        }
+
+        DEBUG("---End: createbar---");
+}
+
+// TODO: Rename to drawbar() or something
+void
+populatebar(Monitor *m)
+{
+        DEBUG("---Start: populatebar---");
+
+        // TODO: draw tags left and statusbar right
+        // TODO: Finally implement cleanup after all this
+        // TODO: Fix alignment issue
+        // TODO: Renam stuff that doesnt make sense
+
+        // TODO: Extra function to draw text onto the statusbar
+        //      draw_to_statusbar(text, font, x, y)
+        // TODO: Only draw bartags if needed
+        // TODO: Extra
+
+        // Clear bar
+        XftDrawRect(
+                m->barwin.xdraw,
+                &xcolors.black,
+                0,
+                0,
+                (unsigned int) m->width,
+                (unsigned int) barheight);
+
+        int baroffset = (barheight - xfont->height) / 2;
+
+        int bartagslen = (int) strnlen(bartags, bartagssize);
+        int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
+
+        XftTextExtentsUtf8 (
+                dpy,
+                xfont,
+                (XftChar8 *) barstatus,
+                barstatuslen,
+                &xglyph);
+
+        // Draw Tags first
+        XftDrawStringUtf8(
+                m->barwin.xdraw,
+                &xcolors.white,
+                xfont,
+                0,
+                xglyph.height + baroffset,
+                (XftChar8 *) bartags,
+                bartagslen);
+
+        // Draw statubarstatus
+        XftDrawStringUtf8(
+                m->barwin.xdraw,
+                &xcolors.white,
+                xfont,
+                m->width - xglyph.width,
+                xglyph.height + baroffset,
+                (XftChar8 *) barstatus,
+                (int) strnlen(barstatus, sizeof(barstatus)));
+
+        DEBUG("---End: populatebar---");
+}
+
+// TODO: Rename to updatebarstaus or something like this
+void
+updatebar()
+{
+        DEBUG("---Start: updatebar---");
+
+        XTextProperty pwmname;
+        int success = XGetWMName(dpy, root, &pwmname);
+        if (!success) {
+                // TODO: Try different method for name retrival
+                // https://specifications.freedesktop.org/wm-spec/1.3/
+
+                return;
+        }
+
+        // We asume here name retrival worked
+        barstatus[0] = '\0';
+
+        if (pwmname.encoding == XA_STRING) {
+                strlcpy(barstatus, (char*)pwmname.value, sizeof(barstatus));
+        }
+
+        if (barstatus[0] == '\0')
+                strcpy(barstatus, "Kisswm V0.1");
+
+        for (Monitor *m = selmon; m; m = m->next)
+                populatebar(m);
+
+        XFree(pwmname.value);
+
+        DEBUG("---End: updatebar---");
+}
+
 /*** WM state changing functions ***/
 
 void
 togglefullscreen(Client *ct)
 {
+        DEBUG("---Start: togglefullscreen---");
         Tag *t = ct->tag;
 
         // set fullscreen client
         t->fsclient = (t->fsclient) ? NULL : ct;
 
-        for(Client *c = t->clients; c; c = c->next) {
-                if(c!=ct) {
-                        if(t->fsclient) {
-                                unmapclient(c);
-                        } else {
-                                mapclient(c);
-                        }
-                }
+        for (Client *c = t->clients; c; c = c->next) {
+                if (c == ct )
+                        continue;
+
+                if (t->fsclient)
+                        unmapclient(c);
+                else
+                        mapclient(c);
         }
+
+        if (t->fsclient)
+                XUnmapWindow(dpy, selmon->barwin.w);
+        else
+                XMapWindow(dpy, selmon->barwin.w);
+
+        DEBUG("---End: togglefullscreen---");
 }
 
 Client*
@@ -316,9 +501,7 @@ maptag(Tag *t, int check_fullscreen)
 {
         // If check_fullscreen is 1, only map a fullscreen window if present
         if (check_fullscreen && t->fsclient) {
-                for(Client *c = t->clients; c; c = c->next)
-                        if(c == t->fsclient)
-                                mapclient(c);
+                mapclient(t->fsclient);
                 return;
         }
 
@@ -420,6 +603,10 @@ focusattach(Client *c)
         Tag *t = c->tag;
         if (!t)
                 return;
+
+        // TODO: Insert into focus if there is a fullscreen client on this tag
+        // Insert between fsclient (focusclients) and the previous focus
+        // Maybe look at focusc() for inspiration
 
         c->nextfocus = NULL;
         c->prevfocus = t->focusclients;
@@ -544,17 +731,18 @@ arrangemon(Monitor *m)
         }
 
         int setwidth = m->width / t->clientnum;
-        int setheight = m->height;
+        int setheight = m->height - barheight;
         int setx = m->x;
+        int sety = barheight;
 
         int clientpos = 0;
         for (Client *c = t->clients; c; c = c->next) {
                 c->width = wc.width = setwidth;
                 c->height = wc.height = setheight;
                 c->x = wc.x = setx = (c->width * clientpos++);
-                c->y = wc.y = 0;
+                c->y = wc.y = sety;
 
-                XConfigureWindow(dpy, c->win, CWX|CWWidth|CWHeight, &wc);
+                XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
         }
 
 
@@ -838,6 +1026,9 @@ focustag(Arg *arg)
         if (tagtofocus == selmon->tag)
                 return;
 
+        // Clear old tag identifier in the statusbar
+        bartags[selmon->tag*2] = ' ';
+
         // Get current tag
         Tag *tc = currenttag(selmon);
         // Update current tag of the current monitor
@@ -847,15 +1038,31 @@ focustag(Arg *arg)
 
         // Arrange the new clients on the newly selected tag
         arrangemon(selmon);
+
         // Unmap current clients
         unmaptag(tc);
         // Map new clients
         maptag(tn, 1);
+        // map/unmap barwin depending on fullscreen on new tag
+        if (tn->fsclient)
+                XUnmapWindow(dpy, selmon->barwin.w);
+        else
+                XMapWindow(dpy, selmon->barwin.w);
 
         // Set the current selected client to the current one on the tag
         selc = tn->focusclients;
 
         focus();
+
+        // Populate bar
+        // TODO: Draw tags on bar clean. Its almost a static text. must be simpler than this.
+        // TODO: Change tags drawing: First a space and then the first tag (So that we dont have a space at end)
+        //             Draw a '*' infront of selected tag
+
+        // Create new tag identifier in the statusbar
+        bartags[selmon->tag*2] = '>';
+
+        updatebar();
         DEBUG("---End: focustag---");
 }
 
@@ -895,16 +1102,9 @@ currenttag(Monitor *m)
 int
 wm_detected(Display *dpy, XErrorEvent *ee)
 {
-        die("Different WM already running", 2);
+        die("Different WM already running");
         // Ignored
         return 0;
-}
-
-void
-die(char* msg, int exit_code)
-{
-        fprintf(stderr, "Kisswm [ERROR]: %s\n", msg);
-        exit(exit_code);
 }
 
 void
@@ -914,14 +1114,11 @@ updatemons()
         // Either initialize monitors or update them (When plugged/unplugged)
         // TODO: Get all monitors and calculate with them
         Monitor *m = malloc(sizeof(Monitor));
-        m->next = NULL;
-        m->tag = 0;
+        memset(m, 0, sizeof(Monitor));
 
         int snum = DefaultScreen(dpy);
         m->height = DisplayHeight(dpy, snum);
         m->width = DisplayWidth(dpy, snum);
-        m->y = 0;
-        m->x = 0;
 
         printf("Monitor: %dx%d on %d.%d\n", m->width, m->height, m->x, m->y);
 
@@ -940,13 +1137,57 @@ setup()
 {
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
-        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|KeyPressMask|ButtonPressMask);
+        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|KeyPressMask|ButtonPressMask|PropertyChangeMask);
         XSync(dpy, 0);
 
-        // Setup of Kisswm
+        // Set the error handler
         XSetErrorHandler(onxerror);
 
+        // Setup statusbar font
+        xfont = XftFontOpenName(dpy, screen, barfont);
+        if (!xfont)
+                die("Cannot load font: %s\n", barfont);
+
+
+        // Setup colors
+        if (!XftColorAllocName(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), "white", &xcolors.white))
+                die("Could not load colors\n");
+        if (!XftColorAllocName(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), "black", &xcolors.black))
+                die("Could not load colors\n");
+
+
+        // Create the bartags string which will be displayed in the statusbar
+        bartagssize = (tags_num * 2) + 2;
+        bartags = calloc(bartagssize, 1);
+        // Add spaces to all tags
+        //  1 2 3 4 5 6 7 8 9
+        for (int i = 0, j = 0; i < tags_num; ++i) {
+                bartags[++j] = *tags[i];
+                bartags[i*2] = ' ';
+                j += 1;
+        }
+        bartags[bartagssize - 1] = '\0';
+
+        // We start on first tag
+        bartags[0] = '>';
+
+        // Calculate height of the statusbar
+//        if (barheight < xfont->height)
+//                barheight = xfont->height;
+
+        // Setup monitors and Tags
         updatemons();
+
+        // Get screen attributes
+        screen = DefaultScreen(dpy);
+        sw = DisplayWidth(dpy, screen);
+        sh = DisplayHeight(dpy, screen);
+        visual = DefaultVisual(dpy, screen);
+        colormap = DefaultColormap(dpy, screen);
+
+        // Create statusbars
+        createbar();
+        updatebar();
 }
 
 void
@@ -962,7 +1203,7 @@ run()
 int main()
 {
         if(!(dpy = XOpenDisplay(NULL)))
-                die("Can not open Display", 1);
+                die("Can not open Display");
         root = DefaultRootWindow(dpy);
 
         setup();

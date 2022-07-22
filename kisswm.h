@@ -1,6 +1,9 @@
 char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=28:antialias=true";
 
+static const char *barfont       = "Fira Code Nerd Font:pixelsize=28:antialias=true";
+static int barheight = 40;
+
 char *term[] = { "st", NULL };
 static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
 
