@@ -122,9 +122,10 @@ void maprequest(XEvent*);
 void unmapnotify(XEvent*);
 void destroynotify(XEvent*);
 
-void updatebar();
-void populatebar();
-void createbar();
+void updatebars();
+void updatestatustext();
+void drawbar();
+void createbars();
 
 void (*handler[LASTEvent])(XEvent*) = {
         [ButtonPress] = buttonpress,
@@ -187,7 +188,12 @@ void
 maprequest(XEvent *e)
 {
         DEBUG("---Start: MapRequest---");
-	// TODO: Denie if 10 or more clients are on tag
+        // We assume the maprequest is on the current (selected) monitor
+        // Get current tag
+        Tag *ct = currenttag(selmon);
+        if (ct->clientnum == 10)
+                return;
+
         XMapRequestEvent *ev = &e->xmaprequest;
         XWindowAttributes wa;
 
@@ -198,7 +204,7 @@ maprequest(XEvent *e)
         c->next = c->prev = c->nextfocus = c->prevfocus = NULL;
         c->win = ev->window;
         c->m = selmon;
-        Tag *t = currenttag(c->m);
+        Tag *t = ct;
         c->tag = t;
 
         attach(c);
@@ -230,7 +236,7 @@ propertynotify(XEvent *e)
         XPropertyEvent *ev = &e->xproperty;
 
         if ((ev->window == root) && (ev->atom == XA_WM_NAME))
-                updatebar();
+                updatebars();
 
         DEBUG("---End: PropertyNotify---");
 }
@@ -288,9 +294,9 @@ onxerror(Display *dpy, XErrorEvent *ee)
 /*** Statusbar functions ***/
 
 void
-createbar()
+createbars()
 {
-        DEBUG("---Start: createbar---");
+        DEBUG("---Start: createbars---");
         Monitor *m = NULL;
         for (m = selmon; m; m = m->next) {
                 m->barwin.w = XCreateSimpleWindow(
@@ -313,18 +319,15 @@ createbar()
                 XMapWindow(dpy, m->barwin.w);
         }
 
-        DEBUG("---End: createbar---");
+        DEBUG("---End: createbars---");
 }
 
-// TODO: Rename to drawbar() or something
 void
-populatebar(Monitor *m)
+drawbar(Monitor *m)
 {
-        DEBUG("---Start: populatebar---");
+        DEBUG("---Start: drawbar---");
 
-        // TODO: draw tags left and statusbar right
         // TODO: Finally implement cleanup after all this
-        // TODO: Fix alignment issue
         // TODO: Renam stuff that doesnt make sense
 
         // TODO: Extra function to draw text onto the statusbar
@@ -373,14 +376,14 @@ populatebar(Monitor *m)
                 (XftChar8 *) barstatus,
                 (int) strnlen(barstatus, sizeof(barstatus)));
 
-        DEBUG("---End: populatebar---");
+        DEBUG("---End: drawbar---");
 }
 
-// TODO: Rename to updatebarstaus or something like this
 void
-updatebar()
+updatestatustext()
 {
-        DEBUG("---Start: updatebar---");
+        // Reset barstatus
+        barstatus[0] = '\0';
 
         XTextProperty pwmname;
         int success = XGetWMName(dpy, root, &pwmname);
@@ -388,25 +391,30 @@ updatebar()
                 // TODO: Try different method for name retrival
                 // https://specifications.freedesktop.org/wm-spec/1.3/
 
-                return;
         }
 
-        // We asume here name retrival worked
-        barstatus[0] = '\0';
 
-        if (pwmname.encoding == XA_STRING) {
+        if (success && pwmname.encoding == XA_STRING) {
                 strlcpy(barstatus, (char*)pwmname.value, sizeof(barstatus));
+                XFree(pwmname.value);
+        } else {
+                strcpy(barstatus, "Kisswm V0.1");
+        }
+}
+
+void
+updatebars()
+{
+        DEBUG("---Start: updatebars---");
+
+        updatestatustext();
+
+        for (Monitor *m = selmon; m; m = m->next) {
+                printf("Drawbar\n");
+                drawbar(m);
         }
 
-        if (barstatus[0] == '\0')
-                strcpy(barstatus, "Kisswm V0.1");
-
-        for (Monitor *m = selmon; m; m = m->next)
-                populatebar(m);
-
-        XFree(pwmname.value);
-
-        DEBUG("---End: updatebar---");
+        DEBUG("---End: updatebars---");
 }
 
 /*** WM state changing functions ***/
@@ -434,6 +442,8 @@ togglefullscreen(Client *ct)
                 XUnmapWindow(dpy, selmon->barwin.w);
         else
                 XMapWindow(dpy, selmon->barwin.w);
+
+        updatebars();
 
         DEBUG("---End: togglefullscreen---");
 }
@@ -518,13 +528,9 @@ closeclient(Window w)
         if (!c && !(c = wintoclient(w)))
                 return;
 
-        DEBUG("---Client will no be closed---");
-
         Monitor *m = c->m;
 
-
         detach(c);
-
 
         // Detach client from focus
         if (c == selc) {
@@ -542,9 +548,6 @@ closeclient(Window w)
 
         focus();
 
-        // TODO: What does this do exactly? (DWM)
-        XEvent ev;
-        while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
         DEBUG("---End: closeclient---");
 }
 
@@ -607,6 +610,7 @@ focusattach(Client *c)
         // TODO: Insert into focus if there is a fullscreen client on this tag
         // Insert between fsclient (focusclients) and the previous focus
         // Maybe look at focusc() for inspiration
+        // For now we just dont allow a window to move to a tag with fullscreen client
 
         c->nextfocus = NULL;
         c->prevfocus = t->focusclients;
@@ -777,6 +781,8 @@ killclient(Arg *arg)
         if (!selc)
                 return;
 
+        // TODO: Kill client polite with atoms
+
         XGrabServer(dpy);
         XKillClient(dpy, selc->win);
         XUngrabServer(dpy);
@@ -825,12 +831,20 @@ mvwintotag(Arg *arg)
 {
         DEBUG("---Start: mvwintotag---");
 
+        if (arg->ui < 1 || arg->ui > tags_num)
+                return;
+
+        if ((arg->ui - 1) == selmon->tag)
+                return;
+
         // Dont allow on fullscreen
         Tag *t = currenttag(selmon);
         if(t && t->fsclient)
                 return;
 
-        if (arg->ui < 1 || arg->ui > tags_num)
+        // Quickfix: Do not allow to move window when the target tag
+        //           has a fullscreen window on it
+        if (selmon->tags[arg->ui - 1].fsclient)
                 return;
 
         // Returns client which was moved
@@ -1054,15 +1068,10 @@ focustag(Arg *arg)
 
         focus();
 
-        // Populate bar
-        // TODO: Draw tags on bar clean. Its almost a static text. must be simpler than this.
-        // TODO: Change tags drawing: First a space and then the first tag (So that we dont have a space at end)
-        //             Draw a '*' infront of selected tag
-
         // Create new tag identifier in the statusbar
         bartags[selmon->tag*2] = '>';
 
-        updatebar();
+        updatebars();
         DEBUG("---End: focustag---");
 }
 
@@ -1158,7 +1167,7 @@ setup()
 
         // Create the bartags string which will be displayed in the statusbar
         bartagssize = (tags_num * 2) + 2;
-        bartags = calloc(bartagssize, 1);
+        bartags = ecalloc(bartagssize, 1);
         // Add spaces to all tags
         //  1 2 3 4 5 6 7 8 9
         for (int i = 0, j = 0; i < tags_num; ++i) {
@@ -1171,10 +1180,6 @@ setup()
         // We start on first tag
         bartags[0] = '>';
 
-        // Calculate height of the statusbar
-//        if (barheight < xfont->height)
-//                barheight = xfont->height;
-
         // Setup monitors and Tags
         updatemons();
 
@@ -1186,8 +1191,10 @@ setup()
         colormap = DefaultColormap(dpy, screen);
 
         // Create statusbars
-        createbar();
-        updatebar();
+        createbars();
+        updatebars();
+
+        XSync(dpy, 0);
 }
 
 void
