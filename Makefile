@@ -12,7 +12,7 @@ util.o: util.c util.h
 	$(CC) -c util.c $(CFLAGS)
 
 install: kisswm
-	rm $(DESTDIR)$(PREFIX)/bin/kisswm
+	rm $(DESTDIR)$(PREFIX)/bin/kisswm || true
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp kisswm $(DESTDIR)$(PREFIX)/bin
 	chmod 755 $(DESTDIR)$(PREFIX)/bin/kisswm
