@@ -80,6 +80,7 @@ struct Monitor {
         int width;
 };
 
+enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
 
 void mapclient(Client*);
 void unmapclient(Client*);
@@ -139,6 +140,8 @@ void (*handler[LASTEvent])(XEvent*) = {
 };
 
 #include "kisswm.h"
+
+Atom icccm_atoms[ICCCM_END];
 
 Display *dpy;
 Window root;
@@ -781,10 +784,33 @@ killclient(Arg *arg)
         if (!selc)
                 return;
 
-        // TODO: Kill client polite with atoms
+        Window w = selc->win;
+        Bool killpolite = False;
+        int protcount;
+        Atom *avail;
+
+        if (XGetWMProtocols(dpy, w, &avail, &protcount))
+                for (int i = 0; i < protcount; ++i)
+                        if (avail[i] == icccm_atoms[ICCCM_DEL_WIN])
+                                killpolite = True;
 
         XGrabServer(dpy);
-        XKillClient(dpy, selc->win);
+
+        if (killpolite) {
+                DEBUG("Killing client politely");
+                XEvent ev;
+                ev.type = ClientMessage;
+                ev.xclient.window = w;
+                ev.xclient.message_type = icccm_atoms[ICCCM_PROTOCOLS];
+                ev.xclient.format = 32;
+                ev.xclient.data.l[0] = (long) icccm_atoms[ICCCM_DEL_WIN];
+                ev.xclient.data.l[1] = CurrentTime;
+                XSendEvent(dpy, w, False, NoEventMask, &ev);
+        } else {
+                DEBUG("Killing client by force");
+                XKillClient(dpy, w);
+        }
+
         XUngrabServer(dpy);
         DEBUG("---End: killclient---");
 }
@@ -1151,6 +1177,11 @@ setup()
 
         // Set the error handler
         XSetErrorHandler(onxerror);
+
+        // Setup atoms
+        icccm_atoms[ICCCM_PROTOCOLS] = XInternAtom(dpy, "WM_PROTOCOLS", False);
+        icccm_atoms[ICCCM_DEL_WIN] = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
+        icccm_atoms[ICCCM_FOCUS] = XInternAtom(dpy, "WM_TAKE_FOCUS", False);
 
         // Setup statusbar font
         xfont = XftFontOpenName(dpy, screen, barfont);
