@@ -18,6 +18,8 @@
         #define DEBUG(...) do {} while (0)
 #endif
 
+enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
+
 typedef union {
         int i;
         unsigned int ui;
@@ -80,8 +82,6 @@ struct Monitor {
         int width;
 };
 
-enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
-
 void mapclient(Client*);
 void unmapclient(Client*);
 void maptag(Tag*, int);
@@ -98,6 +98,7 @@ void killclient(Arg*);
 void closeclient(Window);
 void setup();
 Client* wintoclient(Window);
+Bool sendevent(Client*, Atom*);
 Tag* currenttag(Monitor*);
 void updatemons();
 Client* _mvwintotag(unsigned int);
@@ -106,7 +107,7 @@ void attach(Client*);
 void detach(Client*);
 void focusattach(Client*);
 void focusdetach(Client*);
-void focusc(Client*);
+void focusclient(Client*);
 void focus();
 void arrange(Monitor*);
 void arrangemon(Monitor*);
@@ -454,8 +455,13 @@ togglefullscreen(Client *ct)
 Client*
 _mvwintotag(unsigned int tag)
 {
+        // TODO: Maybe accept the client to move as argument?
+
         DEBUG("---Start: _mvwintotag---");
         if (tag < 1 || tag > tags_num)
+                return NULL;
+
+        if (!selc)
                 return NULL;
 
         // Current Tag
@@ -557,18 +563,22 @@ closeclient(Window w)
 void
 focus()
 {
+        DEBUG("---Start: focus---");
+
         if (!selc)
                 return;
-        DEBUG("---Start: focus---");
+
         // TODO: Set netatom NetActiveWindow (XChangeProperty)
+        // TODO: Set ICCCM atom focus
         XSetInputFocus(dpy, selc->win, RevertToPointerRoot, CurrentTime);
+        sendevent(selc, &icccm_atoms[ICCCM_FOCUS]);
         DEBUG("---End: focus---");
 }
 
 void
-focusc(Client *c)
+focusclient(Client *c)
 {
-        DEBUG("---Start: focusc---");
+        DEBUG("---Start: focusclient---");
         if (!c)
                 return;
 
@@ -599,7 +609,7 @@ focusc(Client *c)
         selmon = c->m;
 
         focus();
-        DEBUG("---End: focusc---");
+        DEBUG("---End: focusclient---");
 }
 
 void
@@ -612,7 +622,7 @@ focusattach(Client *c)
 
         // TODO: Insert into focus if there is a fullscreen client on this tag
         // Insert between fsclient (focusclients) and the previous focus
-        // Maybe look at focusc() for inspiration
+        // Maybe look at focusclient() for inspiration
         // For now we just dont allow a window to move to a tag with fullscreen client
 
         c->nextfocus = NULL;
@@ -784,31 +794,11 @@ killclient(Arg *arg)
         if (!selc)
                 return;
 
-        Window w = selc->win;
-        Bool killpolite = False;
-        int protcount;
-        Atom *avail;
-
-        if (XGetWMProtocols(dpy, w, &avail, &protcount))
-                for (int i = 0; i < protcount; ++i)
-                        if (avail[i] == icccm_atoms[ICCCM_DEL_WIN])
-                                killpolite = True;
-
         XGrabServer(dpy);
 
-        if (killpolite) {
-                DEBUG("Killing client politely");
-                XEvent ev;
-                ev.type = ClientMessage;
-                ev.xclient.window = w;
-                ev.xclient.message_type = icccm_atoms[ICCCM_PROTOCOLS];
-                ev.xclient.format = 32;
-                ev.xclient.data.l[0] = (long) icccm_atoms[ICCCM_DEL_WIN];
-                ev.xclient.data.l[1] = CurrentTime;
-                XSendEvent(dpy, w, False, NoEventMask, &ev);
-        } else {
+        if (!sendevent(selc, &icccm_atoms[ICCCM_DEL_WIN])) {
                 DEBUG("Killing client by force");
-                XKillClient(dpy, w);
+                XKillClient(dpy, selc->win);
         }
 
         XUngrabServer(dpy);
@@ -847,7 +837,7 @@ fullscreen(Arg* arg)
 
         togglefullscreen(t->focusclients);
         if (t->fsclient)
-                focusc(t->fsclient);
+                focusclient(t->fsclient);
 
         arrangemon(selmon);
 }
@@ -861,6 +851,9 @@ mvwintotag(Arg *arg)
                 return;
 
         if ((arg->ui - 1) == selmon->tag)
+                return;
+
+        if (!selc)
                 return;
 
         // Dont allow on fullscreen
@@ -1051,7 +1044,7 @@ void cycleclient(Arg *arg)
 
         }
 
-        focusc(tofocus);
+        focusclient(tofocus);
         DEBUG("---End: cycleclient---");
 }
 
@@ -1103,6 +1096,35 @@ focustag(Arg *arg)
 
 
 /*** Util functions ***/
+
+Bool
+sendevent(Client *c, Atom *prot)
+{
+        Window w = c->win;
+        Bool protavail = False;
+        int protcount = 0;
+        Atom *avail;
+
+        if (XGetWMProtocols(dpy, w, &avail, &protcount)) {
+                for (int i = 0; i < protcount; ++i)
+                        if (avail[i] == *prot)
+                                protavail = True;
+                XFree(avail);
+        }
+
+        if (protavail) {
+                XEvent ev;
+                ev.type = ClientMessage;
+                ev.xclient.window = w;
+                ev.xclient.message_type = icccm_atoms[ICCCM_PROTOCOLS];
+                ev.xclient.format = 32;
+                ev.xclient.data.l[0] = (long) *prot;
+                ev.xclient.data.l[1] = CurrentTime;
+                XSendEvent(dpy, w, False, NoEventMask, &ev);
+        }
+
+        return protavail;
+}
 
 Client*
 wintoclient(Window w)
