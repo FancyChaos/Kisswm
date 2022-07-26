@@ -194,15 +194,13 @@ maprequest(XEvent *e)
         DEBUG("---Start: MapRequest---");
         // We assume the maprequest is on the current (selected) monitor
         // Get current tag
-        Tag *ct = currenttag(selmon);
-        if (ct->clientnum == 10)
-                return;
-
         XMapRequestEvent *ev = &e->xmaprequest;
         XWindowAttributes wa;
 
         if (!XGetWindowAttributes(dpy, ev->window, &wa))
                 return;
+
+        Tag *ct = currenttag(selmon);
 
         Client *c = malloc(sizeof(Client));
         c->next = c->prev = c->nextfocus = c->prevfocus = NULL;
@@ -250,16 +248,6 @@ configurerequest(XEvent *e)
 {
         DEBUG("---Start: ConfigureRequest---");
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
-        XWindowChanges wc;
-
-        wc.x = ev->x;
-        wc.y = ev->y;
-        wc.width = ev->width;
-        wc.height = ev->height;
-        wc.border_width = ev->border_width;
-
-        XConfigureWindow(dpy, ev->window, (unsigned int)ev->value_mask, &wc);
-        XSync(dpy, 0);
         DEBUG("---End: ConfigureRequest---");
 }
 
@@ -413,10 +401,8 @@ updatebars()
 
         updatestatustext();
 
-        for (Monitor *m = selmon; m; m = m->next) {
-                printf("Drawbar\n");
+        for (Monitor *m = selmon; m; m = m->next)
                 drawbar(m);
-        }
 
         DEBUG("---End: updatebars---");
 }
@@ -542,9 +528,9 @@ closeclient(Window w)
         detach(c);
 
         // Detach client from focus
-        if (c == selc) {
+        if (c == selc)
                 selc = c->prevfocus;
-        }
+
         focusdetach(c);
 
         // Reset fsclient
@@ -648,10 +634,10 @@ focusdetach(Client *c)
         if (c == t->focusclients)
                 t->focusclients = c->prevfocus;
 
-        if (!c->prevfocus)
-                return;
-
-        c->prevfocus->nextfocus = c->nextfocus;
+        if (c->prevfocus)
+                c->prevfocus->nextfocus = c->nextfocus;
+        if (c->nextfocus)
+                c->nextfocus->prevfocus = c->prevfocus;
 
         c->prevfocus = c->nextfocus = NULL;
         DEBUG("---End: focusdetach---");
