@@ -236,14 +236,13 @@ maprequest(XEvent *e)
 
         attach(c);
         focusattach(c);
-        selc = c;
 
         arrangemon(c->m);
 
         XMapWindow(dpy, c->win);
         grabkeys(&(c->win));
 
-        focus();
+        focusclient(c);
 
         DEBUG("---End: MapRequest---");
 }
@@ -481,9 +480,6 @@ _mvwintotag(Client *c, Tag *t)
         detach(c);
 
         // Detach client from focus
-        if (c == selc) {
-                selc = c->prevfocus;
-        }
         focusdetach(c);
 
         // Assign client to chosen tag
@@ -559,7 +555,7 @@ closeclient(Window w)
 
         arrangemon(m);
 
-        focus();
+        focusclient(selc);
 
         DEBUG("---End: closeclient---");
 }
@@ -578,6 +574,7 @@ focus()
         }
 
         XSetInputFocus(dpy, selc->win, RevertToPointerRoot, CurrentTime);
+        sendevent(selc, &icccm_atoms[ICCCM_FOCUS]);
         XChangeProperty(
                 dpy,
                 root,
@@ -587,7 +584,6 @@ focus()
                 PropModeReplace,
                 (unsigned char*) &(selc->win),
                 1);
-        sendevent(selc, &icccm_atoms[ICCCM_FOCUS]);
         DEBUG("---End: focus---");
 }
 
@@ -595,9 +591,16 @@ void
 focusclient(Client *c)
 {
         DEBUG("---Start: focusclient---");
+        // Delete active hint of current selc
+        XDeleteProperty(
+                dpy,
+                root,
+                net_atoms[NET_ACTIVE]);
+
         if (!c)
                 return;
 
+        // selc should be focus already
         Tag *t = c->tag;
         if (!t)
                 return;
@@ -892,8 +895,8 @@ mvwintotag(Arg *arg)
         // Arrange the monitor
         arrangemon(selmon);
 
-        // Focus moved client
-        focusclient(c);
+        // Focus previous client
+        focusclient(t->focusclients);
 
         DEBUG("---End: mvwintotag---");
 }
