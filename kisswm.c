@@ -19,6 +19,7 @@
 #endif
 
 enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
+enum { NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE, NET_ACTIVE, NET_CLOSE, NET_FULLSCREEN, NET_END};
 
 typedef union {
         int i;
@@ -123,6 +124,7 @@ void configurerequest(XEvent*);
 void maprequest(XEvent*);
 void unmapnotify(XEvent*);
 void destroynotify(XEvent*);
+void clientmessage(XEvent*);
 
 void updatebars();
 void updatestatustext();
@@ -137,12 +139,15 @@ void (*handler[LASTEvent])(XEvent*) = {
         [PropertyNotify] = propertynotify,
         [MapRequest] = maprequest,
         [UnmapNotify] = unmapnotify,
-        [DestroyNotify] = destroynotify
+        [DestroyNotify] = destroynotify,
+        [ClientMessage] = clientmessage
 };
 
 #include "kisswm.h"
 
+Atom ATOM_UTF8;
 Atom icccm_atoms[ICCCM_END];
+Atom net_atoms[NET_END];
 
 Display *dpy;
 Window root;
@@ -169,6 +174,26 @@ char barstatus[256];
 
 
 /*** X11 Eventhandling ****/
+void
+clientmessage(XEvent *e)
+{
+        DEBUG("---Start: ClientMessage---");
+        XClientMessageEvent *ev = &e->xclient;
+        Client *c = wintoclient(ev->window);
+        if (!c)
+                return;
+
+        if (ev->message_type == net_atoms[NET_ACTIVE]) {
+                // TODO: Display an urgent mark inside bartags string
+        } else if (ev->message_type == net_atoms[NET_STATE]) {
+                if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
+                    ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
+                        fullscreen(NULL);
+                }
+        }
+
+        DEBUG("---End: ClientMessage---");
+}
 
 void
 destroynotify(XEvent *e)
@@ -337,10 +362,31 @@ drawbar(Monitor *m)
                 (unsigned int) barheight);
 
         int baroffset = (barheight - xfont->height) / 2;
+        int glyphheight = 0;
 
         int bartagslen = (int) strnlen(bartags, bartagssize);
         int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
 
+        // Draw Tags first
+        XftTextExtentsUtf8 (
+                dpy,
+                xfont,
+                (XftChar8 *) bartags,
+                bartagslen,
+                &xglyph);
+
+        glyphheight = xglyph.height;
+
+        XftDrawStringUtf8(
+                m->barwin.xdraw,
+                &xcolors.white,
+                xfont,
+                0,
+                glyphheight + baroffset,
+                (XftChar8 *) bartags,
+                bartagslen);
+
+        // Draw statubarstatus
         XftTextExtentsUtf8 (
                 dpy,
                 xfont,
@@ -348,25 +394,14 @@ drawbar(Monitor *m)
                 barstatuslen,
                 &xglyph);
 
-        // Draw Tags first
-        XftDrawStringUtf8(
-                m->barwin.xdraw,
-                &xcolors.white,
-                xfont,
-                0,
-                xglyph.height + baroffset,
-                (XftChar8 *) bartags,
-                bartagslen);
-
-        // Draw statubarstatus
         XftDrawStringUtf8(
                 m->barwin.xdraw,
                 &xcolors.white,
                 xfont,
                 m->width - xglyph.width,
-                xglyph.height + baroffset,
+                glyphheight + baroffset,
                 (XftChar8 *) barstatus,
-                (int) strnlen(barstatus, sizeof(barstatus)));
+                barstatuslen);
 
         DEBUG("---End: drawbar---");
 }
@@ -551,12 +586,24 @@ focus()
 {
         DEBUG("---Start: focus---");
 
-        if (!selc)
+        if (!selc) {
+                XDeleteProperty(
+                        dpy,
+                        root,
+                        net_atoms[NET_ACTIVE]);
                 return;
+        }
 
-        // TODO: Set netatom NetActiveWindow (XChangeProperty)
-        // TODO: Set ICCCM atom focus
         XSetInputFocus(dpy, selc->win, RevertToPointerRoot, CurrentTime);
+        XChangeProperty(
+                dpy,
+                root,
+                net_atoms[NET_ACTIVE],
+                XA_WINDOW,
+                32,
+                PropModeReplace,
+                (unsigned char*) &(selc->win),
+                1);
         sendevent(selc, &icccm_atoms[ICCCM_FOCUS]);
         DEBUG("---End: focus---");
 }
@@ -1187,9 +1234,31 @@ setup()
         XSetErrorHandler(onxerror);
 
         // Setup atoms
+        ATOM_UTF8 = XInternAtom(dpy, "UTF8_STRING", False);
         icccm_atoms[ICCCM_PROTOCOLS] = XInternAtom(dpy, "WM_PROTOCOLS", False);
         icccm_atoms[ICCCM_DEL_WIN] = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
         icccm_atoms[ICCCM_FOCUS] = XInternAtom(dpy, "WM_TAKE_FOCUS", False);
+
+        // Setup extended NET atoms
+        net_atoms[NET_SUPPORTED] = XInternAtom(dpy, "_NET_SUPPORTED", False);
+        net_atoms[NET_SUPPORTING] = XInternAtom(dpy, "_NET_SUPPORTING_WM_CHECK", False);
+        net_atoms[NET_WM_NAME] = XInternAtom(dpy, "_NET_WM_NAME", False);
+        net_atoms[NET_STATE] = XInternAtom(dpy, "_NET_WM_STATE", False);
+        net_atoms[NET_ACTIVE] = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+        net_atoms[NET_CLOSE] = XInternAtom(dpy, "_NET_CLOSE_WINDOW", False);
+        net_atoms[NET_FULLSCREEN] = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
+
+        // Set supported net atoms
+        XChangeProperty(
+                dpy,
+                root,
+                net_atoms[NET_SUPPORTED],
+                XA_ATOM,
+                32,
+                PropModeReplace,
+                (unsigned char*) net_atoms,
+                NET_END);
+
 
         // Setup statusbar font
         xfont = XftFontOpenName(dpy, screen, barfont);
@@ -1232,6 +1301,36 @@ setup()
         // Create statusbars
         createbars();
         updatebars();
+
+        // Set supporting net atoms on one of the barwin
+        XChangeProperty(
+                dpy,
+                root,
+                net_atoms[NET_SUPPORTING],
+                XA_WINDOW,
+                32,
+                PropModeReplace,
+                (unsigned char*) &(selmon->barwin.w),
+                1);
+        XChangeProperty(
+                dpy,
+                selmon->barwin.w,
+                net_atoms[NET_SUPPORTING],
+                XA_WINDOW,
+                32,
+                PropModeReplace,
+                (unsigned char*) &(selmon->barwin.w),
+                1);
+        XChangeProperty(
+                dpy,
+                selmon->barwin.w,
+                net_atoms[NET_WM_NAME],
+                ATOM_UTF8,
+                8,
+                PropModeReplace,
+                (unsigned char*) "kisswm",
+                6);
+
 
         XSync(dpy, 0);
 }

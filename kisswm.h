@@ -10,7 +10,7 @@ static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
 #define MODKEY Mod4Mask
 #define TAGKEYS(KEY,TAG) \
         { MODKEY,                       KEY,      focustag,           {.ui = TAG} }, \
-        { MODKEY|ShiftMask,            KEY,      mvwintotag,         {.ui = TAG} }, \
+        { MODKEY|ShiftMask,             KEY,      mvwintotag,         {.ui = TAG} }, \
 
 Key keys[] = {
         { MODKEY,                     XK_Return,              spawn,                  {.v = term} },
