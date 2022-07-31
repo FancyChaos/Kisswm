@@ -102,7 +102,7 @@ Client* wintoclient(Window);
 Bool sendevent(Client*, Atom*);
 Tag* currenttag(Monitor*);
 void updatemons();
-Client* _mvwintotag(unsigned int);
+void _mvwintotag(Client*, Tag*);
 void togglefullscreen(Client*);
 void attach(Client*);
 void detach(Client*);
@@ -347,10 +347,6 @@ drawbar(Monitor *m)
         // TODO: Finally implement cleanup after all this
         // TODO: Renam stuff that doesnt make sense
 
-        // TODO: Extra function to draw text onto the statusbar
-        //      draw_to_statusbar(text, font, x, y)
-        // TODO: Only draw bartags if needed
-        // TODO: Extra
 
         // Clear bar
         XftDrawRect(
@@ -413,19 +409,22 @@ updatestatustext()
         barstatus[0] = '\0';
 
         XTextProperty pwmname;
-        int success = XGetWMName(dpy, root, &pwmname);
-        if (!success) {
-                // TODO: Try different method for name retrival
-                // https://specifications.freedesktop.org/wm-spec/1.3/
-
+        if (!XGetWMName(dpy, root, &pwmname)) {
+                if (!XGetTextProperty(
+                    dpy,
+                    root,
+                    &pwmname,
+                    net_atoms[NET_WM_NAME])
+                ) {
+                        strcpy(barstatus, "Kisswm V0.1");
+                        return;
+                }
         }
 
 
-        if (success && pwmname.encoding == XA_STRING) {
+        if (pwmname.encoding == XA_STRING || pwmname.encoding == ATOM_UTF8) {
                 strlcpy(barstatus, (char*)pwmname.value, sizeof(barstatus));
                 XFree(pwmname.value);
-        } else {
-                strcpy(barstatus, "Kisswm V0.1");
         }
 }
 
@@ -473,44 +472,28 @@ togglefullscreen(Client *ct)
         DEBUG("---End: togglefullscreen---");
 }
 
-Client*
-_mvwintotag(unsigned int tag)
+void
+_mvwintotag(Client *c, Tag *t)
 {
-        // TODO: Maybe accept the client to move as argument?
-
         DEBUG("---Start: _mvwintotag---");
-        if (tag < 1 || tag > tags_num)
-                return NULL;
-
-        if (!selc)
-                return NULL;
-
-        // Current Tag
-        Tag *tc = currenttag(selmon);
-        // New Tag
-        Tag *tn = &selmon->tags[tag - 1];
-
-        // Client to move
-        Client *ctm = tc->focusclients;
 
         // Detach client from current tag
-        detach(ctm);
+        detach(c);
 
         // Detach client from focus
-        if (ctm == selc) {
-                selc = ctm->prevfocus;
+        if (c == selc) {
+                selc = c->prevfocus;
         }
-        focusdetach(ctm);
+        focusdetach(c);
 
         // Assign client to chosen tag
-        ctm->tag = tn;
-        attach(ctm);
-        focusattach(ctm);
+        c->tag = t;
+        attach(c);
+        focusattach(c);
 
-        // Dont set selc because we do not follow the client
+        // Dont set selc because we do not follow the client. Only Moving
 
         DEBUG("---End: _mvwintotag---");
-        return ctm;
 }
 
 void
@@ -652,11 +635,6 @@ focusattach(Client *c)
         Tag *t = c->tag;
         if (!t)
                 return;
-
-        // TODO: Insert into focus if there is a fullscreen client on this tag
-        // Insert between fsclient (focusclients) and the previous focus
-        // Maybe look at focusclient() for inspiration
-        // For now we just dont allow a window to move to a tag with fullscreen client
 
         c->nextfocus = NULL;
         c->prevfocus = t->focusclients;
@@ -896,11 +874,17 @@ mvwintotag(Arg *arg)
 
         // Quickfix: Do not allow to move window when the target tag
         //           has a fullscreen window on it
-        if (selmon->tags[arg->ui - 1].fsclient)
+        if (t->fsclient)
                 return;
 
-        // Returns client which was moved
-        Client *c = _mvwintotag(arg->ui);
+        // Get tag to move the window to
+        Tag *tmvto = &(selmon->tags[arg->ui -1]);
+
+        // Client to move
+        Client *c = selc;
+
+        // Move the client to tag (detach, attach)
+        _mvwintotag(c, tmvto);
 
         //Unmap moved client
         unmapclient(c);
@@ -908,8 +892,8 @@ mvwintotag(Arg *arg)
         // Arrange the monitor
         arrangemon(selmon);
 
-        // Focus previous client
-        focus();
+        // Focus moved client
+        focusclient(c);
 
         DEBUG("---End: mvwintotag---");
 }
@@ -927,6 +911,12 @@ followwintotag(Arg *arg)
         if (!(arg->i == 1) && !(arg->i == -1))
                 return;
 
+        if (!selc)
+                return;
+
+        // Client to follow
+        Client *c = selc;
+
         // To which tag to move
         unsigned int totag = 1;
 
@@ -941,7 +931,8 @@ followwintotag(Arg *arg)
                 totag = selmon->tag;
         }
 
-        _mvwintotag(totag);
+        Tag *tmvto = &(selmon->tags[totag - 1]);
+        _mvwintotag(c, tmvto);
 
         Arg a = { .ui = totag };
         focustag(&a);
@@ -1041,7 +1032,8 @@ cycletag(Arg *arg)
         DEBUG("---Stop: cycletag---");
 }
 
-void cycleclient(Arg *arg)
+void
+cycleclient(Arg *arg)
 {
         DEBUG("---Start: cycleclient---");
 
@@ -1115,10 +1107,8 @@ focustag(Arg *arg)
         else
                 XMapWindow(dpy, selmon->barwin.w);
 
-        // Set the current selected client to the current one on the tag
-        selc = tn->focusclients;
-
-        focus();
+        // Focus the selected client on selected tag
+        focusclient(tn->focusclients);
 
         // Create new tag identifier in the statusbar
         bartags[selmon->tag*2] = '>';

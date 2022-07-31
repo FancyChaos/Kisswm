@@ -4,7 +4,8 @@ static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=28:antialia
 static const char *barfont       = "Fira Code Nerd Font:pixelsize=28:antialias=true";
 static int barheight = 40;
 
-char *term[] = { "st", NULL };
+static const char *term[] = { "st", NULL };
+static const char *lock[] = { "fxlock", NULL };
 static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
 
 #define MODKEY Mod4Mask
@@ -15,6 +16,7 @@ static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
 Key keys[] = {
         { MODKEY,                     XK_Return,              spawn,                  {.v = term} },
         { MODKEY,                     XK_d,                   spawn,                  {.v = dmenucmd} },
+        { MODKEY|ShiftMask,           XK_l,                   spawn,                  {.v = lock} },
         { MODKEY,                     XK_q,                   killclient,             {0} },
         { MODKEY,                     XK_f,                   fullscreen,             {0} },
 
@@ -24,7 +26,9 @@ Key keys[] = {
         { MODKEY,                     XK_Right,               cycleclient,            {.i = +1} },
         
         { MODKEY|ShiftMask,           XK_Left,                followwintotag,         {.i = -1} },
+        { MODKEY|ShiftMask,           XK_y,                   followwintotag,         {.i = -1} },
         { MODKEY|ShiftMask,           XK_Right,               followwintotag,         {.i = 1} },
+        { MODKEY|ShiftMask,           XK_x,                   followwintotag,         {.i = 1} },
 
         { MODKEY|ControlMask,         XK_Left,                cycletag,               {.i = -1} },
         { MODKEY|ControlMask,         XK_j,                   cycletag,               {.i = -1} },
