@@ -1,7 +1,7 @@
 char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
-static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=28:antialias=true";
+static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
 
-static const char *barfont       = "Fira Code Nerd Font:pixelsize=28:antialias=true";
+static const char *barfont       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
 static int barheight = 40;
 
 static const char *term[] = { "st", NULL };
@@ -24,7 +24,7 @@ Key keys[] = {
         { MODKEY,                     XK_Left,                cycleclient,            {.i = -1} },
         { MODKEY,                     XK_k,                   cycleclient,            {.i = +1} },
         { MODKEY,                     XK_Right,               cycleclient,            {.i = +1} },
-        
+
         { MODKEY|ShiftMask,           XK_Left,                followwintotag,         {.i = -1} },
         { MODKEY|ShiftMask,           XK_y,                   followwintotag,         {.i = -1} },
         { MODKEY|ShiftMask,           XK_Right,               followwintotag,         {.i = 1} },
