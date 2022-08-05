@@ -674,6 +674,9 @@ focusattach(Client *c)
         if (!t)
                 return;
 
+        // Reset fullscreen if new client attaches
+        t->fsclient = NULL;
+
         c->nextfocus = NULL;
         c->prevfocus = t->focusclients;
 
@@ -901,6 +904,8 @@ fullscreen(Arg* arg)
         togglefullscreen(t->focusclients);
         if (t->fsclient)
                 focusclient(t->fsclient);
+        else
+                updatebars();
 
         arrangemon(selmon);
 }
@@ -922,11 +927,6 @@ mvwintotag(Arg *arg)
         // Dont allow on fullscreen
         Tag *t = currenttag(selmon);
         if(t && t->fsclient)
-                return;
-
-        // Quickfix: Do not allow to move window when the target tag
-        //           has a fullscreen window on it
-        if (t->fsclient)
                 return;
 
         // Get tag to move the window to
