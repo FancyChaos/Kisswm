@@ -19,7 +19,17 @@
 #endif
 
 enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
-enum { NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE, NET_ACTIVE, NET_CLOSE, NET_FULLSCREEN, NET_END};
+enum {
+    NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE,
+    NET_TYPE, NET_ACTIVE, NET_CLOSE, NET_FULLSCREEN,
+    NET_END
+};
+
+enum {
+        NET_DESKTOP, NET_DOCK, NET_TOOLBAR, NET_MENU,
+        NET_UTIL, NET_SPLAH, NET_DIALOG, NET_NORMAL,
+        NET_TYPES_END
+};
 
 typedef union {
         int i;
@@ -84,6 +94,7 @@ struct Monitor {
 };
 
 void mapclient(Client*);
+void drawdialog(Window, XWindowAttributes*);
 void unmapclient(Client*);
 void maptag(Tag*, int);
 void unmaptag(Tag*);
@@ -98,8 +109,9 @@ void cycleclient(Arg*);
 void killclient(Arg*);
 void closeclient(Window);
 void setup();
+Atom getwintype(Window);
 Client* wintoclient(Window);
-Bool sendevent(Client*, Atom*);
+Bool sendevent(Window, Atom*);
 Tag* currenttag(Monitor*);
 void updatemons();
 void _mvwintotag(Client*, Tag*);
@@ -109,7 +121,7 @@ void detach(Client*);
 void focusattach(Client*);
 void focusdetach(Client*);
 void focusclient(Client*);
-void focus();
+void focus(Window);
 void arrange(Monitor*);
 void arrangemon(Monitor*);
 void run();
@@ -148,6 +160,7 @@ void (*handler[LASTEvent])(XEvent*) = {
 Atom ATOM_UTF8;
 Atom icccm_atoms[ICCCM_END];
 Atom net_atoms[NET_END];
+Atom net_win_types[NET_TYPES_END];
 
 Display *dpy;
 Window root;
@@ -225,6 +238,14 @@ maprequest(XEvent *e)
         if (!XGetWindowAttributes(dpy, ev->window, &wa))
                 return;
 
+        // Simply render a dialog window
+        Atom wintype = getwintype(ev->window);
+        if (net_win_types[NET_UTIL] == wintype ||
+            net_win_types[NET_DIALOG] == wintype) {
+                drawdialog(ev->window, &wa);
+                return;
+        }
+
         Tag *ct = currenttag(selmon);
 
         Client *c = malloc(sizeof(Client));
@@ -272,6 +293,16 @@ configurerequest(XEvent *e)
 {
         DEBUG("---Start: ConfigureRequest---");
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
+
+        XWindowChanges wc;
+
+        wc.x = ev->x;
+        wc.y = ev->y;
+        wc.width = ev->width;
+        wc.height = ev->height;
+        wc.border_width = ev->border_width;
+
+        XConfigureWindow(dpy, ev->window, (unsigned int)ev->value_mask, &wc);
         DEBUG("---End: ConfigureRequest---");
 }
 
@@ -561,11 +592,12 @@ closeclient(Window w)
 }
 
 void
-focus()
+focus(Window w)
 {
         DEBUG("---Start: focus---");
 
-        if (!selc) {
+
+        if (!selc && !w) {
                 XDeleteProperty(
                         dpy,
                         root,
@@ -573,8 +605,11 @@ focus()
                 return;
         }
 
-        XSetInputFocus(dpy, selc->win, RevertToPointerRoot, CurrentTime);
-        sendevent(selc, &icccm_atoms[ICCCM_FOCUS]);
+        if (!w && selc)
+                w = selc->win;
+
+        XSetInputFocus(dpy, w, RevertToPointerRoot, CurrentTime);
+        sendevent(w, &icccm_atoms[ICCCM_FOCUS]);
         XChangeProperty(
                 dpy,
                 root,
@@ -582,7 +617,7 @@ focus()
                 XA_WINDOW,
                 32,
                 PropModeReplace,
-                (unsigned char*) &(selc->win),
+                (unsigned char*) &w,
                 1);
         DEBUG("---End: focus---");
 }
@@ -608,7 +643,7 @@ focusclient(Client *c)
         if (c == t->focusclients) {
                 selc = c;
                 selmon = c->m;
-                focus();
+                focus(0);
                 return;
         }
 
@@ -627,7 +662,7 @@ focusclient(Client *c)
         selc = c;
         selmon = c->m;
 
-        focus();
+        focus(0);
         DEBUG("---End: focusclient---");
 }
 
@@ -781,6 +816,18 @@ arrangemon(Monitor *m)
         DEBUG("---End: arrangemon---");
 }
 
+void
+drawdialog(Window w, XWindowAttributes *wa)
+{
+        DEBUG("---Start: drawdialog---");
+
+        XMapWindow(dpy, w);
+        grabkeys(&w);
+        focus(w);
+
+        DEBUG("---End: drawdialog---");
+}
+
 
 void
 grabkeys(Window *w)
@@ -805,12 +852,14 @@ void
 killclient(Arg *arg)
 {
         DEBUG("---Start: killclient---");
+        // TODO: Either get focused window (netatom) if selc is not set
+        // or create special type and keep track of dialog windows
         if (!selc)
                 return;
 
         XGrabServer(dpy);
 
-        if (!sendevent(selc, &icccm_atoms[ICCCM_DEL_WIN])) {
+        if (!sendevent(selc->win, &icccm_atoms[ICCCM_DEL_WIN])) {
                 DEBUG("Killing client by force");
                 XKillClient(dpy, selc->win);
         }
@@ -1123,10 +1172,38 @@ focustag(Arg *arg)
 
 /*** Util functions ***/
 
-Bool
-sendevent(Client *c, Atom *prot)
+Atom
+getwintype(Window w)
 {
-        Window w = c->win;
+        Atom actualtype;
+        int actualformat;
+        unsigned long nitems;
+        unsigned long bytes;
+        unsigned char *data;
+
+        int ret = XGetWindowProperty(
+                dpy,
+                w,
+                net_atoms[NET_TYPE],
+                0,
+                1,
+                False,
+                XA_ATOM,
+                &actualtype,
+                &actualformat,
+                &nitems,
+                &bytes,
+                &data);
+
+        if (actualtype == None || actualformat != 32)
+                return 0;
+
+        return (Atom)*data;
+}
+
+Bool
+sendevent(Window w, Atom *prot)
+{
         Bool protavail = False;
         int protcount = 0;
         Atom *avail;
@@ -1237,9 +1314,20 @@ setup()
         net_atoms[NET_SUPPORTING] = XInternAtom(dpy, "_NET_SUPPORTING_WM_CHECK", False);
         net_atoms[NET_WM_NAME] = XInternAtom(dpy, "_NET_WM_NAME", False);
         net_atoms[NET_STATE] = XInternAtom(dpy, "_NET_WM_STATE", False);
+        net_atoms[NET_TYPE] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
         net_atoms[NET_ACTIVE] = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
         net_atoms[NET_CLOSE] = XInternAtom(dpy, "_NET_CLOSE_WINDOW", False);
         net_atoms[NET_FULLSCREEN] = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
+
+        // Set atoms for window types
+        net_win_types[NET_DESKTOP] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DESKTOP", False);
+        net_win_types[NET_DOCK] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DOCK", False);
+        net_win_types[NET_TOOLBAR] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_TOOLBAR", False);
+        net_win_types[NET_MENU] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_MENU", False);
+        net_win_types[NET_UTIL] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_UTILITY", False);
+        net_win_types[NET_SPLAH] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_SPLAH", False);
+        net_win_types[NET_DIALOG] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+        net_win_types[NET_NORMAL] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_NORMAL", False);
 
         // Set supported net atoms
         XChangeProperty(
