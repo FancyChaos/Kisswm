@@ -125,6 +125,7 @@ void focus(Window);
 void arrange(Monitor*);
 void arrangemon(Monitor*);
 void run();
+void cleanup();
 void grabkeys(Window*);
 int wm_detected(Display*, XErrorEvent*);
 int onxerror(Display*, XErrorEvent*);
@@ -374,10 +375,6 @@ drawbar(Monitor *m)
 {
         DEBUG("---Start: drawbar---");
 
-        // TODO: Finally implement cleanup after all this
-        // TODO: Renam stuff that doesnt make sense
-
-
         // Clear bar
         XftDrawRect(
                 m->barwin.xdraw,
@@ -451,11 +448,10 @@ updatestatustext()
                 }
         }
 
-
-        if (pwmname.encoding == XA_STRING || pwmname.encoding == ATOM_UTF8) {
+        if (pwmname.encoding == XA_STRING || pwmname.encoding == ATOM_UTF8)
                 strlcpy(barstatus, (char*)pwmname.value, sizeof(barstatus));
-                XFree(pwmname.value);
-        }
+
+        XFree(pwmname.value);
 }
 
 void
@@ -1195,10 +1191,13 @@ getwintype(Window w)
                 &bytes,
                 &data);
 
-        if (actualtype == None || actualformat != 32)
+        if (ret != Success || !data)
                 return 0;
 
-        return (Atom)*data;
+        Atom wintype = (Atom)*data;
+        XFree(data);
+
+        return wintype;
 }
 
 Bool
@@ -1295,6 +1294,8 @@ updatemons()
 void
 setup()
 {
+        root = DefaultRootWindow(dpy);
+
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
         XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|KeyPressMask|ButtonPressMask|PropertyChangeMask);
@@ -1425,17 +1426,23 @@ run()
                         handler[e.type](&e);
 }
 
+void
+cleanup()
+{
+        for (Monitor *m = mons; m; m = m->next)
+                XDestroyWindow(dpy, m->barwin.w);
+        XCloseDisplay(dpy);
+}
 
-int main()
+int
+main()
 {
         if(!(dpy = XOpenDisplay(NULL)))
                 die("Can not open Display");
-        root = DefaultRootWindow(dpy);
 
         setup();
-
         run();
+        cleanup();
 
-        XCloseDisplay(dpy);
         return 0;
 }
