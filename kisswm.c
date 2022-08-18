@@ -9,6 +9,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <X11/Xft/Xft.h>
+#include <X11/extensions/Xinerama.h>
 
 #include "util.h"
 
@@ -67,8 +68,8 @@ struct Client {
         Tag *tag;
         Client *next, *prev;
         Client *nextfocus, *prevfocus;
-        int y;
         int x;
+        int y;
         int width;
         int height;
         int bw;
@@ -84,11 +85,15 @@ struct Tag {
 
 struct Monitor {
         Monitor *next;
+        Monitor *prev;
         Barwin barwin;
+        unsigned long bartagssize;
+        char *bartags;
         unsigned int tag;
         Tag *tags;
-        int y;
+        int snum;
         int x;
+        int y;
         int height;
         int width;
 };
@@ -106,6 +111,7 @@ void fullscreen(Arg*);
 void focustag(Arg*);
 void cycletag(Arg*);
 void cycleclient(Arg*);
+void cyclemon(Arg*);
 void killclient(Arg*);
 void closeclient(Window);
 void setup();
@@ -113,7 +119,9 @@ Atom getwintype(Window);
 Client* wintoclient(Window);
 Bool sendevent(Window, Atom*);
 Tag* currenttag(Monitor*);
+void freemons();
 void updatemons();
+void generatebartags(Monitor*);
 void _mvwintotag(Client*, Tag*);
 void togglefullscreen(Client*);
 void attach(Client*);
@@ -122,7 +130,7 @@ void focusattach(Client*);
 void focusdetach(Client*);
 void focusclient(Client*);
 void focus(Window);
-void arrange(Monitor*);
+void arrange();
 void arrangemon(Monitor*);
 void run();
 void cleanup();
@@ -174,16 +182,10 @@ XGlyphInfo xglyph;
 Colors xcolors;
 
 int screen;
-int sw;
-int sh;
-unsigned long colormap;
-Visual *visual;
 
 
 unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
 
-char *bartags;
-unsigned long bartagssize;
 char barstatus[256];
 
 
@@ -345,14 +347,14 @@ void
 createbars()
 {
         DEBUG("---Start: createbars---");
-        Monitor *m = NULL;
-        for (m = selmon; m; m = m->next) {
+        for (Monitor *m = mons; m; m = m->next) {
+                DEBUG("CREATE BARWIN FOR ONE MONITOR");
                 m->barwin.w = XCreateSimpleWindow(
                         dpy,
                         root,
-                        0,
-                        0,
-                        (unsigned int) selmon->width,
+                        m->x,
+                        m->y,
+                        (unsigned int) m->width,
                         (unsigned int) barheight,
                         0,
                         0,
@@ -360,11 +362,11 @@ createbars()
 
                 m->barwin.xdraw = XftDrawCreate(
                         dpy,
-                        selmon->barwin.w,
-                        visual,
-                        colormap);
+                        m->barwin.w,
+                        DefaultVisual(dpy, screen),
+                        DefaultColormap(dpy, screen));
 
-                XMapWindow(dpy, m->barwin.w);
+                XMapRaised(dpy, m->barwin.w);
         }
 
         DEBUG("---End: createbars---");
@@ -379,35 +381,66 @@ drawbar(Monitor *m)
         XftDrawRect(
                 m->barwin.xdraw,
                 &xcolors.black,
-                0,
-                0,
+                m->x,
+                m->y,
                 (unsigned int) m->width,
                 (unsigned int) barheight);
 
         int baroffset = (barheight - xfont->height) / 2;
         int glyphheight = 0;
 
-        int bartagslen = (int) strnlen(bartags, bartagssize);
+        int bartagslen = (int) strnlen(m->bartags, m->bartagssize);
         int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
 
+        // TODO: Check if one of those calls exits with an error
+        // The statusbar on the second monitor is not working...
+        // Draw a bit wider (Bigger x) to see if it gets rendered ons econd screen
+
         // Draw Tags first
-        XftTextExtentsUtf8 (
+        XftTextExtentsUtf8(
                 dpy,
                 xfont,
-                (XftChar8 *) bartags,
+                (XftChar8 *) m->bartags,
                 bartagslen,
                 &xglyph);
 
         glyphheight = xglyph.height;
 
+
+        printf("Drawing Bar for Monitor: %p\n", m);
+        printf("Monitor number: %d\n", m->snum);
+        printf("Monitor x: %d\n", m->x);
+        printf("Monitor y: %d\n", m->y);
+        printf("Monitor width: %d\n", m->width);
+        printf("Monitor Height: %d\n", m->height);
+        printf("Bartags: %s\n", m->bartags);
+        printf("Monitor Glyphheight: %d\n", glyphheight);
+        printf("Monitor Baroffset: %d\n", baroffset);
+        printf("Monitor bartagslen: %d\n", bartagslen);
+        printf("Monitor bartags Final Y: %d\n", m->y + (glyphheight + baroffset));
+        fflush(stdout);
+
         XftDrawStringUtf8(
                 m->barwin.xdraw,
                 &xcolors.white,
                 xfont,
-                0,
-                glyphheight + baroffset,
-                (XftChar8 *) bartags,
+                m->x,
+                m->y + (glyphheight + baroffset),
+                (XftChar8 *) m->bartags,
                 bartagslen);
+
+        if (barstatus[0] == '\0') {
+                XSync(dpy, 0);
+                return;
+        }
+
+        printf("Monitor barstatus: %s\n", barstatus);
+        printf("Monitor barstatuslen: %d\n", barstatuslen);
+        printf("Monitor bartagslen: %d\n", bartagslen);
+        printf("Monitor xglyph Width: %d\n", xglyph.width);
+        printf("Monitor Barstatus final X: %d\n", m->x + (m->width - xglyph.width));
+        printf("Monitor Barstatus final Y: %d\n", m->y + (glyphheight + baroffset));
+        fflush(stdout);
 
         // Draw statubarstatus
         XftTextExtentsUtf8 (
@@ -421,11 +454,12 @@ drawbar(Monitor *m)
                 m->barwin.xdraw,
                 &xcolors.white,
                 xfont,
-                m->width - xglyph.width,
-                glyphheight + baroffset,
+                m->x + (m->width - xglyph.width),
+                m->y + (glyphheight + baroffset),
                 (XftChar8 *) barstatus,
                 barstatuslen);
 
+        XSync(dpy, 0);
         DEBUG("---End: drawbar---");
 }
 
@@ -461,7 +495,7 @@ updatebars()
 
         updatestatustext();
 
-        for (Monitor *m = selmon; m; m = m->next)
+        for (Monitor *m = mons; m; m = m->next)
                 drawbar(m);
 
         DEBUG("---End: updatebars---");
@@ -491,7 +525,7 @@ togglefullscreen(Client *ct)
         if (t->fsclient)
                 XUnmapWindow(dpy, selmon->barwin.w);
         else
-                XMapWindow(dpy, selmon->barwin.w);
+                XMapRaised(dpy, selmon->barwin.w);
 
         updatebars();
 
@@ -538,7 +572,7 @@ unmapclient(Client *c)
 void
 unmaptag(Tag *t)
 {
-        for(Client *c = t->clients; c; c = c->next)
+        for (Client *c = t->clients; c; c = c->next)
                 unmapclient(c);
 }
 
@@ -552,7 +586,7 @@ maptag(Tag *t, int check_fullscreen)
         }
 
         // Map every window if not fullscreen client is present
-        for(Client *c = t->clients; c; c = c->next)
+        for (Client *c = t->clients; c; c = c->next)
                 mapclient(c);
 }
 
@@ -622,14 +656,14 @@ void
 focusclient(Client *c)
 {
         DEBUG("---Start: focusclient---");
+        if (!c)
+                return;
+
         // Delete active hint of current selc
         XDeleteProperty(
                 dpy,
                 root,
                 net_atoms[NET_ACTIVE]);
-
-        if (!c)
-                return;
 
         // selc should be focus already
         Tag *t = c->tag;
@@ -761,7 +795,7 @@ attach(Client *c)
 }
 
 void
-arrange(Monitor *m)
+arrange()
 {
         DEBUG("---Start: arrange---");
         // Arrange current viewable terminals
@@ -777,7 +811,7 @@ arrangemon(Monitor *m)
 
         // Only arrange current focused Tag of the monitor
         Tag *t = currenttag(m);
-        if (t && !t->clientnum)
+        if (!t->clientnum)
                 return;
 
         XWindowChanges wc;
@@ -786,8 +820,8 @@ arrangemon(Monitor *m)
         if (t->fsclient) {
                 t->fsclient->width = wc.width = m->width;
                 t->fsclient->height = wc.height = m->height;
-                t->fsclient->x = wc.x = 0;
-                t->fsclient->y = wc.y = 0;
+                t->fsclient->x = wc.x = m->x;
+                t->fsclient->y = wc.y = m->y;
 
                 XConfigureWindow(dpy, t->fsclient->win, CWX|CWY|CWWidth|CWHeight, &wc);
                 XSync(dpy, 0);
@@ -797,19 +831,16 @@ arrangemon(Monitor *m)
 
         int setwidth = m->width / t->clientnum;
         int setheight = m->height - barheight;
-        int setx = m->x;
-        int sety = barheight;
 
         int clientpos = 0;
         for (Client *c = t->clients; c; c = c->next) {
                 c->width = wc.width = setwidth;
                 c->height = wc.height = setheight;
-                c->x = wc.x = setx = (c->width * clientpos++);
-                c->y = wc.y = sety;
+                c->x = wc.x = m->x + (c->width * clientpos++);
+                c->y = wc.y = m->y + barheight;
 
                 XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
         }
-
 
         XSync(dpy, 0);
         DEBUG("---End: arrangemon---");
@@ -956,7 +987,7 @@ followwintotag(Arg *arg)
         if(t && t->fsclient)
                 return;
 
-        if (!(arg->i == 1) && !(arg->i == -1))
+        if (arg->i != 1 && arg->i != -1)
                 return;
 
         if (!selc)
@@ -994,10 +1025,10 @@ mvwin(Arg *arg)
 
         // Dont allow on fullscreen
         Tag *t = currenttag(selmon);
-        if(t && t->fsclient)
+        if (t && t->fsclient)
                 return;
 
-        if (!(arg->i == 1) && !(arg->i == -1))
+        if (arg->i != 1 && arg->i != -1)
                 return;
 
         // Client to move
@@ -1054,7 +1085,7 @@ void
 cycletag(Arg *arg)
 {
         DEBUG("---Start: cycletag---");
-        if (!(arg->i == 1) && !(arg->i == -1))
+        if (arg->i != 1 && arg->i != -1)
                 return;
 
         // Chill for a bit
@@ -1081,6 +1112,36 @@ cycletag(Arg *arg)
 }
 
 void
+cyclemon(Arg *arg)
+{
+        DEBUG("---Start: cyclemon---");
+
+        if (!mons->next)
+                return;
+        
+        if (arg->i != 1 && arg->i != -1)
+                return;
+
+        // Set selmon to chosen monitor
+        if (arg->i == 1 && selmon->next)
+                selmon = selmon->next;
+        else if (arg->i == -1 && selmon->prev)
+                selmon = selmon->prev;
+        else
+                return;
+        
+        // Focus window on current tag
+        Tag *t = currenttag(selmon);
+
+        // TODO: Check if neccessary
+        // arrangemon(selmon);
+
+        focusclient(t->focusclients);
+
+        DEBUG("---Stop: cyclemon---");
+}
+
+void
 cycleclient(Arg *arg)
 {
         DEBUG("---Start: cycleclient---");
@@ -1090,7 +1151,7 @@ cycleclient(Arg *arg)
         if(t && t->fsclient)
                 return;
 
-        if (!(arg->i == 1) && !(arg->i == -1))
+        if (arg->i != 1 && arg->i != -1)
                 return;
 
         if (!selc)
@@ -1133,7 +1194,7 @@ focustag(Arg *arg)
                 return;
 
         // Clear old tag identifier in the statusbar
-        bartags[selmon->tag*2] = ' ';
+        selmon->bartags[selmon->tag*2] = ' ';
 
         // Get current tag
         Tag *tc = currenttag(selmon);
@@ -1159,7 +1220,7 @@ focustag(Arg *arg)
         focusclient(tn->focusclients);
 
         // Create new tag identifier in the statusbar
-        bartags[selmon->tag*2] = '>';
+        selmon->bartags[selmon->tag*2] = '>';
 
         updatebars();
         DEBUG("---End: focustag---");
@@ -1261,34 +1322,101 @@ currenttag(Monitor *m)
 int
 wm_detected(Display *dpy, XErrorEvent *ee)
 {
-        die("Different WM already running");
+        die("Different WM already running\n");
         // Ignored
         return 0;
 }
 
 void
+freemons()
+{
+        // Free monitors, tags and barwins //
+        if (!mons)
+                return;
+
+        Monitor *tmp = mons;
+        for (Monitor *m = mons; m; m = tmp) {
+                XDestroyWindow(dpy, m->barwin.w);
+                free(m->tags);
+                free(m->bartags);
+                m->bartagssize = 0;
+
+                tmp = m->next;
+                free(m);
+        }
+
+        mons = selmon = NULL;
+}
+
+void
+generatebartags(Monitor *m)
+{
+        // Create the bartags string which will be displayed in the statusbar
+        m->bartagssize = (tags_num * 2) + 2;
+        m->bartags = ecalloc(m->bartagssize, 1);
+
+        // Add spaces to all tags
+        //  1 2 3 4 5 6 7 8 9
+        for (int i = 0, j = 0; i < tags_num; ++i) {
+                m->bartags[++j] = *tags[i];
+                m->bartags[i*2] = ' ';
+                j += 1;
+        }
+        m->bartags[m->bartagssize - 1] = '\0';
+
+        // We start on first tag
+        m->bartags[0] = '>';
+}
+
+void
 updatemons()
 {
-        // TODO: Get multiple monitors with Xinerama
-        // Either initialize monitors or update them (When plugged/unplugged)
-        // TODO: Get all monitors and calculate with them
-        Monitor *m = malloc(sizeof(Monitor));
-        memset(m, 0, sizeof(Monitor));
+        freemons();
+        if (!XineramaIsActive(dpy))
+                die("Just build with Xinerama mate\n");
 
-        int snum = DefaultScreen(dpy);
-        m->height = DisplayHeight(dpy, snum);
-        m->width = DisplayWidth(dpy, snum);
-
-        printf("Monitor: %dx%d on %d.%d\n", m->width, m->height, m->x, m->y);
-
-
-        // Init the tags
         unsigned long tags_bytes = (tags_num * sizeof(Tag));
-        m->tags = malloc(tags_bytes);
-        memset(m->tags, 0, tags_bytes);
+        int monitornum;
+        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
+        for (int n = 0; n < monitornum; ++n) {
+                Monitor *m = malloc(sizeof(Monitor));
+                memset(m, 0, sizeof(Monitor));
 
-        mons = m;
-        selmon = m;
+                m->snum = info[n].screen_number;
+                m->x = info[n].x_org;
+                m->y = info[n].y_org;
+                m->height = info[n].height;
+                m->width = info[n].width;
+
+                // Init the tags
+                m->tags = malloc(tags_bytes);
+                memset(m->tags, 0, tags_bytes);
+
+                if (!mons) {
+                        mons = m;
+                        selmon = m;
+                } else {
+                        Monitor *lastmon;
+                        for (lastmon = mons; lastmon->next; lastmon = lastmon->next);
+                        lastmon->next = m;
+                        m->prev = lastmon;
+                }
+
+                // Generate the bartags string which is displayed inside the statusbar
+                generatebartags(m);
+        }
+
+        XFree(info);
+
+	for (Monitor *m = mons; m; m = m->next) {
+                printf("Screen number: %d\n", m->snum);
+                printf("Screen x: %d\n", m->x);
+                printf("Screen y: %d\n", m->y);
+                printf("Screen width: %d\n", m->width);
+                printf("Screen Height: %d\n", m->height);
+                fflush(stdout);
+	}
+
 }
 
 void
@@ -1303,6 +1431,9 @@ setup()
 
         // Set the error handler
         XSetErrorHandler(onxerror);
+
+        // Get screen attributes
+        screen = DefaultScreen(dpy);
 
         // Setup atoms
         ATOM_UTF8 = XInternAtom(dpy, "UTF8_STRING", False);
@@ -1341,12 +1472,10 @@ setup()
                 (unsigned char*) net_atoms,
                 NET_END);
 
-
         // Setup statusbar font
         xfont = XftFontOpenName(dpy, screen, barfont);
         if (!xfont)
                 die("Cannot load font: %s\n", barfont);
-
 
         // Setup colors
         if (!XftColorAllocName(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), "white", &xcolors.white))
@@ -1354,33 +1483,11 @@ setup()
         if (!XftColorAllocName(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), "black", &xcolors.black))
                 die("Could not load colors\n");
 
-
-        // Create the bartags string which will be displayed in the statusbar
-        bartagssize = (tags_num * 2) + 2;
-        bartags = ecalloc(bartagssize, 1);
-        // Add spaces to all tags
-        //  1 2 3 4 5 6 7 8 9
-        for (int i = 0, j = 0; i < tags_num; ++i) {
-                bartags[++j] = *tags[i];
-                bartags[i*2] = ' ';
-                j += 1;
-        }
-        bartags[bartagssize - 1] = '\0';
-
-        // We start on first tag
-        bartags[0] = '>';
-
         // Setup monitors and Tags
         updatemons();
 
-        // Get screen attributes
-        screen = DefaultScreen(dpy);
-        sw = DisplayWidth(dpy, screen);
-        sh = DisplayHeight(dpy, screen);
-        visual = DefaultVisual(dpy, screen);
-        colormap = DefaultColormap(dpy, screen);
-
         // Create statusbars
+        barstatus[0] = '\0';
         createbars();
         updatebars();
 
@@ -1413,7 +1520,7 @@ setup()
                 (unsigned char*) "kisswm",
                 6);
 
-
+        arrange();
         XSync(dpy, 0);
 }
 
@@ -1438,7 +1545,7 @@ int
 main()
 {
         if(!(dpy = XOpenDisplay(NULL)))
-                die("Can not open Display");
+                die("Can not open Display\n");
 
         setup();
         run();

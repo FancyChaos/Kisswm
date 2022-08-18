@@ -35,6 +35,9 @@ Key keys[] = {
         { MODKEY|ControlMask,         XK_Right,               cycletag,               {.i = 1} },
         { MODKEY|ControlMask,         XK_k,                   cycletag,               {.i = 1} },
 
+        { MODKEY,                     XK_comma,               cyclemon,               {.i = -1 } },
+        { MODKEY,                     XK_period,              cyclemon,               {.i = 1 } },
+
         { MODKEY|ShiftMask,           XK_j,                   mvwin,             {.i = -1} },
         { MODKEY|ShiftMask,           XK_k,                   mvwin,             {.i = 1} },
 
