@@ -49,17 +49,12 @@ typedef struct {
 typedef struct Monitor Monitor;
 typedef struct Client Client;
 typedef struct Tag Tag;
-typedef struct Barwin Barwin;
 typedef struct Colors Colors;
-
-struct Barwin {
-        Window w;
-        XftDraw *xdraw;
-};
 
 struct Colors {
         XftColor black;
         XftColor white;
+        XftColor alpha;
 };
 
 struct Client {
@@ -86,7 +81,6 @@ struct Tag {
 struct Monitor {
         Monitor *next;
         Monitor *prev;
-        Barwin barwin;
         unsigned long bartagssize;
         char *bartags;
         unsigned int tag;
@@ -150,7 +144,6 @@ void clientmessage(XEvent*);
 void updatebars();
 void updatestatustext();
 void drawbar();
-void createbars();
 
 void (*handler[LASTEvent])(XEvent*) = {
         [ButtonPress] = buttonpress,
@@ -180,8 +173,10 @@ XftDraw *xdraw;
 XftFont *xfont;
 XGlyphInfo xglyph;
 Colors xcolors;
-
+Drawable drawable;
 int screen;
+int sh, sw;
+
 
 
 unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
@@ -343,43 +338,30 @@ onxerror(Display *dpy, XErrorEvent *ee)
 
 /*** Statusbar functions ***/
 
-void
-createbars()
-{
-        DEBUG("---Start: createbars---");
-        for (Monitor *m = mons; m; m = m->next) {
-                DEBUG("CREATE BARWIN FOR ONE MONITOR");
-                m->barwin.w = XCreateSimpleWindow(
-                        dpy,
-                        root,
-                        m->x,
-                        m->y,
-                        (unsigned int) m->width,
-                        (unsigned int) barheight,
-                        0,
-                        0,
-                        0);
-
-                m->barwin.xdraw = XftDrawCreate(
-                        dpy,
-                        m->barwin.w,
-                        DefaultVisual(dpy, screen),
-                        DefaultColormap(dpy, screen));
-
-                XMapRaised(dpy, m->barwin.w);
-        }
-
-        DEBUG("---End: createbars---");
-}
 
 void
 drawbar(Monitor *m)
 {
         DEBUG("---Start: drawbar---");
 
+        // Make bar invisible if fullscreen
+        Tag *t = currenttag(m);
+        if (t->fsclient) {
+                XftDrawRect(
+                        xdraw,
+                        &xcolors.alpha,
+                        m->x,
+                        m->y,
+                        (unsigned int) m->width,
+                        (unsigned int) barheight);
+                XSync(dpy, 0);
+                return;
+        }
+
+
         // Clear bar
         XftDrawRect(
-                m->barwin.xdraw,
+                xdraw,
                 &xcolors.black,
                 m->x,
                 m->y,
@@ -421,7 +403,7 @@ drawbar(Monitor *m)
         fflush(stdout);
 
         XftDrawStringUtf8(
-                m->barwin.xdraw,
+                xdraw,
                 &xcolors.white,
                 xfont,
                 m->x,
@@ -451,7 +433,7 @@ drawbar(Monitor *m)
                 &xglyph);
 
         XftDrawStringUtf8(
-                m->barwin.xdraw,
+                xdraw,
                 &xcolors.white,
                 xfont,
                 m->x + (m->width - xglyph.width),
@@ -522,10 +504,6 @@ togglefullscreen(Client *ct)
                         mapclient(c);
         }
 
-        if (t->fsclient)
-                XUnmapWindow(dpy, selmon->barwin.w);
-        else
-                XMapRaised(dpy, selmon->barwin.w);
 
         updatebars();
 
@@ -1210,11 +1188,6 @@ focustag(Arg *arg)
         unmaptag(tc);
         // Map new clients
         maptag(tn, 1);
-        // map/unmap barwin depending on fullscreen on new tag
-        if (tn->fsclient)
-                XUnmapWindow(dpy, selmon->barwin.w);
-        else
-                XMapWindow(dpy, selmon->barwin.w);
 
         // Focus the selected client on selected tag
         focusclient(tn->focusclients);
@@ -1330,13 +1303,12 @@ wm_detected(Display *dpy, XErrorEvent *ee)
 void
 freemons()
 {
-        // Free monitors, tags and barwins //
+        // Free monitors, tags //
         if (!mons)
                 return;
 
         Monitor *tmp = mons;
         for (Monitor *m = mons; m; m = tmp) {
-                XDestroyWindow(dpy, m->barwin.w);
                 free(m->tags);
                 free(m->bartags);
                 m->bartagssize = 0;
@@ -1483,15 +1455,46 @@ setup()
         if (!XftColorAllocName(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), "black", &xcolors.black))
                 die("Could not load colors\n");
 
+        XRenderColor alpha = {0x0000, 0x0000, 0x0000, 0xffff};
+        if (!XftColorAllocValue(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), &alpha, &xcolors.alpha))
+                die("Could not load colors\n");
+
         // Setup monitors and Tags
         updatemons();
 
+        // Create global drawable area with pixmap
+        sh = DisplayHeight(dpy, screen);
+        sw = DisplayWidth(dpy, screen);
+
+        drawable = XCreateSimpleWindow(
+                        dpy,
+                        root,
+                        0,
+                        0,
+                        (unsigned int) sw,
+                        (unsigned int) barheight,
+                        0,
+                        0,
+                        0);
+        //drawable = XCreatePixmap(
+        //                dpy,
+        //                root,
+        //                (unsigned int) DisplayWidth(dpy, screen),
+        //                (unsigned int) DisplayHeight(dpy, screen),
+        //                (unsigned int) DefaultDepth(dpy, screen));
+        xdraw = XftDrawCreate(
+                    dpy,
+                    drawable,
+                    DefaultVisual(dpy, screen),
+                    DefaultColormap(dpy, screen));
+        XMapRaised(dpy, drawable);
+
+
         // Create statusbars
         barstatus[0] = '\0';
-        createbars();
         updatebars();
 
-        // Set supporting net atoms on one of the barwin
+        // Set supporting net atoms on one of the statusbar
         XChangeProperty(
                 dpy,
                 root,
@@ -1499,26 +1502,27 @@ setup()
                 XA_WINDOW,
                 32,
                 PropModeReplace,
-                (unsigned char*) &(selmon->barwin.w),
+                (unsigned char*) &drawable,
                 1);
         XChangeProperty(
                 dpy,
-                selmon->barwin.w,
+                drawable,
                 net_atoms[NET_SUPPORTING],
                 XA_WINDOW,
                 32,
                 PropModeReplace,
-                (unsigned char*) &(selmon->barwin.w),
+                (unsigned char*) &drawable,
                 1);
         XChangeProperty(
                 dpy,
-                selmon->barwin.w,
+                drawable,
                 net_atoms[NET_WM_NAME],
                 ATOM_UTF8,
                 8,
                 PropModeReplace,
                 (unsigned char*) "kisswm",
                 6);
+
 
         arrange();
         XSync(dpy, 0);
@@ -1536,8 +1540,6 @@ run()
 void
 cleanup()
 {
-        for (Monitor *m = mons; m; m = m->next)
-                XDestroyWindow(dpy, m->barwin.w);
         XCloseDisplay(dpy);
 }
 
