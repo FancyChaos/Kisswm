@@ -50,6 +50,14 @@ typedef struct Monitor Monitor;
 typedef struct Client Client;
 typedef struct Tag Tag;
 typedef struct Colors Colors;
+typedef struct Statusbar Statusbar;
+
+struct Statusbar {
+        Window win;
+        XftDraw *xdraw;
+        int depth;
+        Visual *visual;
+};
 
 struct Colors {
         XftColor black;
@@ -168,12 +176,11 @@ Display *dpy;
 Window root;
 Monitor *mons, *selmon;
 Client *selc;
+Statusbar statusbar;
 
-XftDraw *xdraw;
 XftFont *xfont;
 XGlyphInfo xglyph;
 Colors xcolors;
-Drawable drawable;
 int screen;
 int sh, sw;
 
@@ -340,28 +347,43 @@ onxerror(Display *dpy, XErrorEvent *ee)
 
 
 void
+updatebars()
+{
+        DEBUG("---Start: updatebars---");
+
+        updatestatustext();
+
+        for (Monitor *m = mons; m; m = m->next)
+                drawbar(m);
+
+        DEBUG("---End: updatebars---");
+}
+
+void
 drawbar(Monitor *m)
 {
         DEBUG("---Start: drawbar---");
 
-        // Make bar invisible if fullscreen
+        // Clear bar
+        XClearArea(
+                dpy,
+                statusbar.win,
+                m->x,
+                m->y,
+                (unsigned int) m->width,
+                (unsigned int) barheight,
+                0);
+
+        // Do not draw bar if fullscreen window on monitor
         Tag *t = currenttag(m);
         if (t->fsclient) {
-                XftDrawRect(
-                        xdraw,
-                        &xcolors.alpha,
-                        m->x,
-                        m->y,
-                        (unsigned int) m->width,
-                        (unsigned int) barheight);
                 XSync(dpy, 0);
                 return;
         }
 
-
-        // Clear bar
+        // Draw black rectangle over statusbar (clear window)
         XftDrawRect(
-                xdraw,
+                statusbar.xdraw,
                 &xcolors.black,
                 m->x,
                 m->y,
@@ -374,10 +396,6 @@ drawbar(Monitor *m)
         int bartagslen = (int) strnlen(m->bartags, m->bartagssize);
         int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
 
-        // TODO: Check if one of those calls exits with an error
-        // The statusbar on the second monitor is not working...
-        // Draw a bit wider (Bigger x) to see if it gets rendered ons econd screen
-
         // Draw Tags first
         XftTextExtentsUtf8(
                 dpy,
@@ -389,21 +407,8 @@ drawbar(Monitor *m)
         glyphheight = xglyph.height;
 
 
-        printf("Drawing Bar for Monitor: %p\n", m);
-        printf("Monitor number: %d\n", m->snum);
-        printf("Monitor x: %d\n", m->x);
-        printf("Monitor y: %d\n", m->y);
-        printf("Monitor width: %d\n", m->width);
-        printf("Monitor Height: %d\n", m->height);
-        printf("Bartags: %s\n", m->bartags);
-        printf("Monitor Glyphheight: %d\n", glyphheight);
-        printf("Monitor Baroffset: %d\n", baroffset);
-        printf("Monitor bartagslen: %d\n", bartagslen);
-        printf("Monitor bartags Final Y: %d\n", m->y + (glyphheight + baroffset));
-        fflush(stdout);
-
         XftDrawStringUtf8(
-                xdraw,
+                statusbar.xdraw,
                 &xcolors.white,
                 xfont,
                 m->x,
@@ -416,14 +421,6 @@ drawbar(Monitor *m)
                 return;
         }
 
-        printf("Monitor barstatus: %s\n", barstatus);
-        printf("Monitor barstatuslen: %d\n", barstatuslen);
-        printf("Monitor bartagslen: %d\n", bartagslen);
-        printf("Monitor xglyph Width: %d\n", xglyph.width);
-        printf("Monitor Barstatus final X: %d\n", m->x + (m->width - xglyph.width));
-        printf("Monitor Barstatus final Y: %d\n", m->y + (glyphheight + baroffset));
-        fflush(stdout);
-
         // Draw statubarstatus
         XftTextExtentsUtf8 (
                 dpy,
@@ -433,7 +430,7 @@ drawbar(Monitor *m)
                 &xglyph);
 
         XftDrawStringUtf8(
-                xdraw,
+                statusbar.xdraw,
                 &xcolors.white,
                 xfont,
                 m->x + (m->width - xglyph.width),
@@ -468,19 +465,6 @@ updatestatustext()
                 strlcpy(barstatus, (char*)pwmname.value, sizeof(barstatus));
 
         XFree(pwmname.value);
-}
-
-void
-updatebars()
-{
-        DEBUG("---Start: updatebars---");
-
-        updatestatustext();
-
-        for (Monitor *m = mons; m; m = m->next)
-                drawbar(m);
-
-        DEBUG("---End: updatebars---");
 }
 
 /*** WM state changing functions ***/
@@ -1379,16 +1363,6 @@ updatemons()
         }
 
         XFree(info);
-
-	for (Monitor *m = mons; m; m = m->next) {
-                printf("Screen number: %d\n", m->snum);
-                printf("Screen x: %d\n", m->x);
-                printf("Screen y: %d\n", m->y);
-                printf("Screen width: %d\n", m->width);
-                printf("Screen Height: %d\n", m->height);
-                fflush(stdout);
-	}
-
 }
 
 void
@@ -1462,11 +1436,36 @@ setup()
         // Setup monitors and Tags
         updatemons();
 
-        // Create global drawable area with pixmap
+        // Create statusbar window
         sh = DisplayHeight(dpy, screen);
         sw = DisplayWidth(dpy, screen);
 
-        drawable = XCreateSimpleWindow(
+        XSetWindowAttributes wa;
+        wa.background_pixel = 0;
+        wa.border_pixel = 0;
+
+        unsigned long valuemask = CWBackPixel | CWBorderPixel;
+        statusbar.depth = DefaultDepth(dpy, screen);
+        statusbar.visual = DefaultVisual(dpy, screen);
+
+        XVisualInfo vinfo;
+        if (XMatchVisualInfo(
+                dpy,
+                screen,
+                32,
+                TrueColor,
+                &vinfo)) {
+            statusbar.depth = vinfo.depth;
+            statusbar.visual = vinfo.visual;
+            wa.colormap = XCreateColormap(
+                            dpy,
+                            root,
+                            statusbar.visual,
+                            AllocNone);
+            valuemask = valuemask | CWColormap;
+        }
+
+        statusbar.win = XCreateWindow(
                         dpy,
                         root,
                         0,
@@ -1474,20 +1473,17 @@ setup()
                         (unsigned int) sw,
                         (unsigned int) barheight,
                         0,
-                        0,
-                        0);
-        //drawable = XCreatePixmap(
-        //                dpy,
-        //                root,
-        //                (unsigned int) DisplayWidth(dpy, screen),
-        //                (unsigned int) DisplayHeight(dpy, screen),
-        //                (unsigned int) DefaultDepth(dpy, screen));
-        xdraw = XftDrawCreate(
-                    dpy,
-                    drawable,
-                    DefaultVisual(dpy, screen),
-                    DefaultColormap(dpy, screen));
-        XMapRaised(dpy, drawable);
+                        statusbar.depth,
+                        InputOutput,
+                        statusbar.visual,
+                        valuemask,
+                        &wa);
+        statusbar.xdraw = XftDrawCreate(
+                            dpy,
+                            statusbar.win,
+                            statusbar.visual,
+                            DefaultColormap(dpy, screen));
+        XMapRaised(dpy, statusbar.win);
 
 
         // Create statusbars
@@ -1502,20 +1498,20 @@ setup()
                 XA_WINDOW,
                 32,
                 PropModeReplace,
-                (unsigned char*) &drawable,
+                (unsigned char*) &statusbar.win,
                 1);
         XChangeProperty(
                 dpy,
-                drawable,
+                statusbar.win,
                 net_atoms[NET_SUPPORTING],
                 XA_WINDOW,
                 32,
                 PropModeReplace,
-                (unsigned char*) &drawable,
+                (unsigned char*) &statusbar.win,
                 1);
         XChangeProperty(
                 dpy,
-                drawable,
+                statusbar.win,
                 net_atoms[NET_WM_NAME],
                 ATOM_UTF8,
                 8,
