@@ -299,6 +299,13 @@ configurerequest(XEvent *e)
         DEBUG("---Start: ConfigureRequest---");
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
+        // Only allow custom sizes for dialog windows
+        Atom wintype = getwintype(ev->window);
+        if (wintype != net_win_types[NET_UTIL] &&
+            wintype != net_win_types[NET_DIALOG]) {
+                return;
+        }
+
         XWindowChanges wc;
 
         wc.x = ev->x;
