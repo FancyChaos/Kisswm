@@ -796,20 +796,31 @@ arrangemon(Monitor *m)
 
                 XConfigureWindow(dpy, t->fsclient->win, CWX|CWY|CWWidth|CWHeight, &wc);
                 XSync(dpy, 0);
-                DEBUG("---End: arrangemon (FULLSCREEN)---");
                 return;
         }
 
-        int setwidth = m->width / t->clientnum;
-        int setheight = m->height - barheight;
+        int halfwidth = m->width / 2;
 
-        int clientpos = 0;
-        for (Client *c = t->clients; c; c = c->next) {
-                c->width = wc.width = setwidth;
-                c->height = wc.height = setheight;
-                c->x = wc.x = m->x + (c->width * clientpos++);
-                c->y = wc.y = m->y + barheight;
+        // First client gets full or half monitor if multiple clients
+        Client *fc = t->clients;
+        fc->width = wc.width = (t->clientnum == 1) ? m->width : halfwidth;
+        fc->height = wc.height = m->height - barheight;
+        fc->x = wc.x = m->x;
+        fc->y = wc.y = m->y + barheight;
+        XConfigureWindow(dpy, fc->win, CWY|CWX|CWWidth|CWHeight, &wc);
 
+        if (!fc->next) {
+                XSync(dpy, 0);
+                return;
+        }
+
+        // Draw rest of the clients to the right of the screen
+        int rightheight = (m->height - barheight) / (t->clientnum - 1);
+        for (Client *c = fc->next; c; c = c->next) {
+                c->width = wc.width = halfwidth;
+                c->height = wc.height = rightheight;
+                c->x = wc.x = halfwidth;
+                c->y = wc.y = c->prev->y + (c->prev == fc ? 0 : rightheight);
                 XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
         }
 
