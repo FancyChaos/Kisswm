@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdarg.h>
+#include <signal.h>
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
 #include <X11/keysym.h>
@@ -235,8 +236,7 @@ void
 maprequest(XEvent *e)
 {
         DEBUG("---Start: MapRequest---");
-        // We assume the maprequest is on the current (selected) monitor
-        // Get current tag
+
         XMapRequestEvent *ev = &e->xmaprequest;
         XWindowAttributes wa;
 
@@ -251,6 +251,8 @@ maprequest(XEvent *e)
                 return;
         }
 
+        // We assume the maprequest is on the current (selected) monitor
+        // Get current tag
         Tag *ct = currenttag(selmon);
 
         Client *c = malloc(sizeof(Client));
@@ -870,24 +872,20 @@ killclient(Arg *arg)
 void
 spawn(Arg *arg)
 {
-        DEBUG("---Start: spawn---");
-
         // Dont allow on fullscreen
         Tag *t = currenttag(selmon);
         if(t && t->fsclient)
                 return;
 
-        // TODO: Rad about fork(), dup2(), etc. and rework if neccessary
-        if (fork() == 0) {
-                if (dpy)
-                        close(ConnectionNumber(dpy));
-                setsid();
-                execvp(((char **)arg->v)[0], (char **)arg->v);
-                fprintf(stderr, "dwm: execvp %s", ((char **)arg->v)[0]);
-                perror(" failed");
-                exit(EXIT_SUCCESS);
-        }
-        DEBUG("---End: spawn---");
+        if (fork())
+                return;
+
+        if (dpy)
+                close(ConnectionNumber(dpy));
+
+        setsid();
+        execvp(((char **)arg->v)[0], (char **)arg->v);
+        exit(0);
 }
 
 void
@@ -1087,7 +1085,7 @@ cyclemon(Arg *arg)
 
         if (!mons->next)
                 return;
-        
+
         if (arg->i != 1 && arg->i != -1)
                 return;
 
@@ -1098,12 +1096,12 @@ cyclemon(Arg *arg)
                 selmon = selmon->prev;
         else
                 return;
-        
+
         // Focus window on current tag
         Tag *t = currenttag(selmon);
 
         // TODO: Check if neccessary
-        // arrangemon(selmon);
+        arrangemon(selmon);
 
         focusclient(t->focusclients);
 
@@ -1350,6 +1348,8 @@ updatemons()
                 m->y = info[n].y_org;
                 m->height = info[n].height;
                 m->width = info[n].width;
+                m->prev = NULL;
+                m->next = NULL;
 
                 // Init the tags
                 m->tags = malloc(tags_bytes);
@@ -1540,11 +1540,6 @@ run()
                         handler[e.type](&e);
 }
 
-void
-cleanup()
-{
-        XCloseDisplay(dpy);
-}
 
 int
 main()
@@ -1552,9 +1547,11 @@ main()
         if(!(dpy = XOpenDisplay(NULL)))
                 die("Can not open Display\n");
 
+        signal(SIGCHLD, SIG_IGN);
+
         setup();
         run();
-        cleanup();
 
+        XCloseDisplay(dpy);
         return 0;
 }
