@@ -81,6 +81,7 @@ struct Client {
 
 struct Tag {
         int clientnum;
+        int masteroffset;
         Client *clients;
         Client *focusclients;
         // Fullscreen client
@@ -135,6 +136,7 @@ void focusclient(Client*);
 void focus(Window);
 void arrange();
 void arrangemon(Monitor*);
+void updatemasteroffset(Arg*);
 void run();
 void cleanup();
 void grabkeys(Window*);
@@ -184,7 +186,6 @@ XGlyphInfo xglyph;
 Colors xcolors;
 int screen;
 int sh, sw;
-
 
 
 unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
@@ -785,6 +786,9 @@ arrangemon(Monitor *m)
         if (!t->clientnum)
                 return;
 
+        if (t->clientnum == 1)
+                t->masteroffset = 0;
+
         XWindowChanges wc;
 
         // We have a fullscreen client on the tag
@@ -799,11 +803,11 @@ arrangemon(Monitor *m)
                 return;
         }
 
-        int halfwidth = m->width / 2;
+        int masterarea = (m->width / 2) + t->masteroffset;
 
         // First client gets full or half monitor if multiple clients
         Client *fc = t->clients;
-        fc->width = wc.width = (t->clientnum == 1) ? m->width : halfwidth;
+        fc->width = wc.width = (t->clientnum == 1) ? m->width : masterarea;
         fc->height = wc.height = m->height - barheight;
         fc->x = wc.x = m->x;
         fc->y = wc.y = m->y + barheight;
@@ -817,9 +821,9 @@ arrangemon(Monitor *m)
         // Draw rest of the clients to the right of the screen
         int rightheight = (m->height - barheight) / (t->clientnum - 1);
         for (Client *c = fc->next; c; c = c->next) {
-                c->width = wc.width = halfwidth;
+                c->width = wc.width = m->width - masterarea;
                 c->height = wc.height = rightheight;
-                c->x = wc.x = halfwidth;
+                c->x = wc.x = masterarea;
                 c->y = wc.y = c->prev->y + (c->prev == fc ? 0 : rightheight);
                 XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
         }
@@ -859,6 +863,30 @@ grabkeys(Window *w)
 }
 
 /*** Keybinding fuctions ***/
+
+void
+updatemasteroffset(Arg *arg)
+{
+        if (!selmon)
+                return;
+
+        // Only allow masteroffset adjustment if at least 2 clients are present
+        Tag *t = currenttag(selmon);
+        if (t->clientnum < 2)
+                return;
+
+        int halfwidth = selmon->width / 2;
+        int updatedmasteroffset = t->masteroffset + arg->i;
+
+        // Do not adjust if masteroffset already too small/big
+        if ((halfwidth + updatedmasteroffset) < 100)
+                return;
+        else if ((halfwidth + updatedmasteroffset) > (selmon->width - 100))
+                return;
+
+        t->masteroffset = updatedmasteroffset;
+        arrangemon(selmon);
+}
 
 void
 killclient(Arg *arg)
@@ -1285,8 +1313,6 @@ Tag *
 currenttag(Monitor *m)
 {
         if (!m)
-                m = selmon;
-        if (!selmon)
                 return NULL;
 
         return &m->tags[m->tag];

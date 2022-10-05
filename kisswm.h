@@ -38,8 +38,11 @@ Key keys[] = {
         { MODKEY,                     XK_comma,               cyclemon,               {.i = -1 } },
         { MODKEY,                     XK_period,              cyclemon,               {.i = 1 } },
 
-        { MODKEY|ShiftMask,           XK_j,                   mvwin,             {.i = -1} },
-        { MODKEY|ShiftMask,           XK_k,                   mvwin,             {.i = 1} },
+        { MODKEY|ShiftMask,           XK_j,                   mvwin,                  {.i = -1} },
+        { MODKEY|ShiftMask,           XK_k,                   mvwin,                  {.i = 1} },
+
+        { MODKEY,                     XK_h,                   updatemasteroffset,     {.i = -50} },
+        { MODKEY,                     XK_l,                   updatemasteroffset,     {.i = 50} },
 
         /* Tag keys */
         TAGKEYS(                      XK_1,                                           1)
