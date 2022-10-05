@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <X11/Xlib.h>
 #include <X11/XKBlib.h>
 #include <X11/keysym.h>
@@ -102,6 +103,7 @@ struct Monitor {
         int width;
 };
 
+bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
 void mapclient(Client*);
 void drawdialog(Window, XWindowAttributes*);
@@ -221,7 +223,8 @@ destroynotify(XEvent *e)
 {
         DEBUG("---Start: DestroyNotify---");
         XDestroyWindowEvent *ev = &e->xdestroywindow;
-        closeclient(ev->window);
+        if (ev->window)
+                closeclient(ev->window);
         XSync(dpy, 0);
         DEBUG("---End: DestroyNotify---");
 }
@@ -240,6 +243,10 @@ maprequest(XEvent *e)
         DEBUG("---Start: MapRequest---");
 
         XMapRequestEvent *ev = &e->xmaprequest;
+
+        if (alreadymapped(ev->window))
+                return;
+
         XWindowAttributes wa;
 
         if (!XGetWindowAttributes(dpy, ev->window, &wa))
@@ -1241,6 +1248,19 @@ focustag(Arg *arg)
 
 
 /*** Util functions ***/
+
+bool
+alreadymapped(Window w)
+{
+        // Checks if the window of MapRequest is already mapped (a client)
+        // A specific application was observed to have that behavior
+        for (Monitor *m = mons; m; m = m->next)
+                for (int i = 0; i < tags_num; ++i)
+                        for (Client *c = m->tags[i].clients; c; c = c->next)
+                                if (c->win == w)
+                                        return true;
+        return false;
+}
 
 void
 setborder(Window w, int width, unsigned long color)
