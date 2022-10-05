@@ -6,7 +6,8 @@ static const char *barfont       = "Fira Code Nerd Font:pixelsize=18:antialias=t
 static int barheight = 40;
 
 static int borderwidth = 3;
-static unsigned long bordercolor = 0xDFD8D2;
+static unsigned long bordercolor = 0xFAEBD7;
+static unsigned long bordercolor_inactive = 0x6F6C69;
 
 static const char *term[] = { "st", NULL };
 static const char *lock[] = { "fxlock", NULL };

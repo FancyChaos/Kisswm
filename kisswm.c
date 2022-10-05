@@ -102,6 +102,7 @@ struct Monitor {
         int width;
 };
 
+void setborder(Window, int, unsigned long);
 void mapclient(Client*);
 void drawdialog(Window, XWindowAttributes*);
 void unmapclient(Client*);
@@ -244,13 +245,6 @@ maprequest(XEvent *e)
         if (!XGetWindowAttributes(dpy, ev->window, &wa))
                 return;
 
-        // Draw border for every window
-        XWindowChanges wc;
-        wc.border_width = borderwidth;
-        XConfigureWindow(dpy, ev->window, CWBorderWidth, &wc);
-        XSetWindowBorder(dpy, ev->window, bordercolor);
-
-
         // Simply render a dialog window
         Atom wintype = getwintype(ev->window);
         if (net_win_types[NET_UTIL] == wintype ||
@@ -267,18 +261,21 @@ maprequest(XEvent *e)
         c->next = c->prev = c->nextfocus = c->prevfocus = NULL;
         c->win = ev->window;
         c->m = selmon;
-        Tag *t = ct;
-        c->tag = t;
+        c->tag = ct;
 
         attach(c);
         focusattach(c);
 
+        // Already arrange monitor before new window is mapped
+        // This will reduce flicker of client
         arrangemon(c->m);
 
         XMapWindow(dpy, c->win);
-        grabkeys(&(c->win));
 
+        // We can only focus of the windows was mapped
         focusclient(c);
+
+        grabkeys(&(c->win));
 
         DEBUG("---End: MapRequest---");
 }
@@ -604,8 +601,7 @@ focus(Window w)
 {
         DEBUG("---Start: focus---");
 
-
-        if (!selc && !w) {
+        if (!w && !selc) {
                 XDeleteProperty(
                         dpy,
                         root,
@@ -613,8 +609,9 @@ focus(Window w)
                 return;
         }
 
-        if (!w && selc)
+        if (!w)
                 w = selc->win;
+
 
         XSetInputFocus(dpy, w, RevertToPointerRoot, CurrentTime);
         sendevent(w, &icccm_atoms[ICCCM_FOCUS]);
@@ -627,6 +624,7 @@ focus(Window w)
                 PropModeReplace,
                 (unsigned char*) &w,
                 1);
+
         DEBUG("---End: focus---");
 }
 
@@ -651,6 +649,7 @@ focusclient(Client *c)
         if (c == t->focusclients) {
                 selc = c;
                 selmon = c->m;
+                setborder(c->win, borderwidth, bordercolor);
                 focus(0);
                 return;
         }
@@ -660,8 +659,9 @@ focusclient(Client *c)
         if (c->nextfocus)
                 c->nextfocus->prevfocus = c->prevfocus;
 
-        t->focusclients->nextfocus = c;
         c->prevfocus = t->focusclients;
+        if (c->prevfocus)
+                c->prevfocus->nextfocus = c;
 
         c->nextfocus = NULL;
 
@@ -669,6 +669,13 @@ focusclient(Client *c)
 
         selc = c;
         selmon = c->m;
+
+        // Set active border color to window
+        setborder(c->win, borderwidth, bordercolor);
+
+        // Set previous window border to inactive
+        if (c->prevfocus)
+                setborder(c->prevfocus->win, borderwidth, bordercolor_inactive);
 
         focus(0);
         DEBUG("---End: focusclient---");
@@ -690,8 +697,6 @@ focusattach(Client *c)
 
         if (c->prevfocus)
                 c->prevfocus->nextfocus = c;
-
-        t->focusclients = c;
 
         DEBUG("---End: focusattach---");
 
@@ -1236,6 +1241,20 @@ focustag(Arg *arg)
 
 
 /*** Util functions ***/
+
+void
+setborder(Window w, int width, unsigned long color)
+{
+        DEBUG("---Start: SetBorder---");
+        XWindowChanges wc;
+        wc.border_width = width;
+        XConfigureWindow(dpy, w, CWBorderWidth, &wc);
+
+        if (color)
+                XSetWindowBorder(dpy, w, color);
+
+        DEBUG("---END: SetBorder---");
+}
 
 Atom
 getwintype(Window w)
