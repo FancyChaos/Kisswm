@@ -1,8 +1,12 @@
 char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+
 static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
 
 static const char *barfont       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
 static int barheight = 40;
+
+static int borderwidth = 3;
+static unsigned long bordercolor = 0xDFD8D2;
 
 static const char *term[] = { "st", NULL };
 static const char *lock[] = { "fxlock", NULL };

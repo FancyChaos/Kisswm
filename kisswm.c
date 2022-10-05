@@ -244,6 +244,13 @@ maprequest(XEvent *e)
         if (!XGetWindowAttributes(dpy, ev->window, &wa))
                 return;
 
+        // Draw border for every window
+        XWindowChanges wc;
+        wc.border_width = borderwidth;
+        XConfigureWindow(dpy, ev->window, CWBorderWidth, &wc);
+        XSetWindowBorder(dpy, ev->window, bordercolor);
+
+
         // Simply render a dialog window
         Atom wintype = getwintype(ev->window);
         if (net_win_types[NET_UTIL] == wintype ||
@@ -315,7 +322,6 @@ configurerequest(XEvent *e)
         wc.y = ev->y;
         wc.width = ev->width;
         wc.height = ev->height;
-        wc.border_width = ev->border_width;
 
         XConfigureWindow(dpy, ev->window, (unsigned int)ev->value_mask, &wc);
         DEBUG("---End: ConfigureRequest---");
@@ -804,11 +810,12 @@ arrangemon(Monitor *m)
         }
 
         int masterarea = (m->width / 2) + t->masteroffset;
+        int borderoffset = borderwidth * 2;
 
         // First client gets full or half monitor if multiple clients
         Client *fc = t->clients;
-        fc->width = wc.width = (t->clientnum == 1) ? m->width : masterarea;
-        fc->height = wc.height = m->height - barheight;
+        fc->width = wc.width = ((t->clientnum == 1) ? m->width : masterarea) - borderoffset;
+        fc->height = wc.height = m->height - barheight - borderoffset;
         fc->x = wc.x = m->x;
         fc->y = wc.y = m->y + barheight;
         XConfigureWindow(dpy, fc->win, CWY|CWX|CWWidth|CWHeight, &wc);
@@ -821,8 +828,8 @@ arrangemon(Monitor *m)
         // Draw rest of the clients to the right of the screen
         int rightheight = (m->height - barheight) / (t->clientnum - 1);
         for (Client *c = fc->next; c; c = c->next) {
-                c->width = wc.width = m->width - masterarea;
-                c->height = wc.height = rightheight;
+                c->width = wc.width = m->width - masterarea - borderoffset;
+                c->height = wc.height = rightheight - borderoffset;
                 c->x = wc.x = masterarea;
                 c->y = wc.y = c->prev->y + (c->prev == fc ? 0 : rightheight);
                 XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
