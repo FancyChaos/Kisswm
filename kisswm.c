@@ -800,12 +800,13 @@ arrangemon(Monitor *m)
         if (t->clientnum == 1)
                 t->masteroffset = 0;
 
+        int borderoffset = borderwidth * 2;
         XWindowChanges wc;
 
         // We have a fullscreen client on the tag
         if (t->fsclient) {
-                t->fsclient->width = wc.width = m->width;
-                t->fsclient->height = wc.height = m->height;
+                t->fsclient->width = wc.width = m->width - borderoffset;
+                t->fsclient->height = wc.height = m->height - borderoffset;
                 t->fsclient->x = wc.x = m->x;
                 t->fsclient->y = wc.y = m->y;
 
@@ -815,7 +816,6 @@ arrangemon(Monitor *m)
         }
 
         int masterarea = (m->width / 2) + t->masteroffset;
-        int borderoffset = borderwidth * 2;
 
         // First client gets full or half monitor if multiple clients
         Client *fc = t->clients;
