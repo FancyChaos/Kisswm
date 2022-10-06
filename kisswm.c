@@ -653,22 +653,16 @@ focusclient(Client *c)
         if (!t)
                 return;
 
-        if (c == t->focusclients) {
-                selc = c;
-                selmon = c->m;
-                setborder(c->win, borderwidth, bordercolor);
-                focus(0);
-                return;
+        if (c != t->focusclients) {
+                if (c->prevfocus)
+                        c->prevfocus->nextfocus = c->nextfocus;
+                if (c->nextfocus)
+                        c->nextfocus->prevfocus = c->prevfocus;
+
+                c->prevfocus = t->focusclients;
+                if (c->prevfocus)
+                        c->prevfocus->nextfocus = c;
         }
-
-        if (c->prevfocus)
-                c->prevfocus->nextfocus = c->nextfocus;
-        if (c->nextfocus)
-                c->nextfocus->prevfocus = c->prevfocus;
-
-        c->prevfocus = t->focusclients;
-        if (c->prevfocus)
-                c->prevfocus->nextfocus = c;
 
         c->nextfocus = NULL;
 
@@ -678,7 +672,10 @@ focusclient(Client *c)
         selmon = c->m;
 
         // Set active border color to window
-        setborder(c->win, borderwidth, bordercolor);
+        if (t->fsclient == c)
+                setborder(c->win, 0, 0);
+        else
+                setborder(c->win, borderwidth, bordercolor);
 
         // Set previous window border to inactive
         if (c->prevfocus)
@@ -704,6 +701,8 @@ focusattach(Client *c)
 
         if (c->prevfocus)
                 c->prevfocus->nextfocus = c;
+
+        t->focusclients = c;
 
         DEBUG("---End: focusattach---");
 
@@ -812,8 +811,8 @@ arrangemon(Monitor *m)
 
         // We have a fullscreen client on the tag
         if (t->fsclient) {
-                t->fsclient->width = wc.width = m->width - borderoffset;
-                t->fsclient->height = wc.height = m->height - borderoffset;
+                t->fsclient->width = wc.width = m->width;
+                t->fsclient->height = wc.height = m->height;
                 t->fsclient->x = wc.x = m->x;
                 t->fsclient->y = wc.y = m->y;
 
@@ -842,7 +841,7 @@ arrangemon(Monitor *m)
         for (Client *c = fc->next; c; c = c->next) {
                 c->width = wc.width = m->width - masterarea - borderoffset;
                 c->height = wc.height = rightheight - borderoffset;
-                c->x = wc.x = masterarea;
+                c->x = wc.x = masterarea + m->x;
                 c->y = wc.y = c->prev->y + (c->prev == fc ? 0 : rightheight);
                 XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
         }
@@ -949,16 +948,12 @@ spawn(Arg *arg)
 void
 fullscreen(Arg* arg)
 {
-        Tag *t = currenttag(selmon);
-        if (!t->clientnum || !t->focusclients)
+        if (!selc)
                 return;
 
-        togglefullscreen(t->focusclients);
-        if (t->fsclient)
-                focusclient(t->fsclient);
-        else
-                updatebars();
-
+        togglefullscreen(selc);
+        focusclient(selc);
+        updatebars();
         arrangemon(selmon);
 }
 
@@ -978,7 +973,7 @@ mvwintotag(Arg *arg)
 
         // Dont allow on fullscreen
         Tag *t = currenttag(selmon);
-        if(t && t->fsclient)
+        if(t->fsclient)
                 return;
 
         // Get tag to move the window to
@@ -986,6 +981,8 @@ mvwintotag(Arg *arg)
 
         // Client to move
         Client *c = selc;
+        // Previous client which gets focus after move
+        Client *pc = c->prevfocus;
 
         // Move the client to tag (detach, attach)
         _mvwintotag(c, tmvto);
@@ -995,9 +992,9 @@ mvwintotag(Arg *arg)
 
         // Arrange the monitor
         arrangemon(selmon);
-
+        
         // Focus previous client
-        focusclient(t->focusclients);
+        focusclient(pc);
 
         DEBUG("---End: mvwintotag---");
 }
@@ -1160,7 +1157,7 @@ cyclemon(Arg *arg)
 
         // TODO: Check if neccessary
         arrangemon(selmon);
-
+        
         focusclient(t->focusclients);
 
         DEBUG("---Stop: cyclemon---");
