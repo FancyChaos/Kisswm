@@ -142,7 +142,7 @@ void arrangemon(Monitor*);
 void updatemasteroffset(Arg*);
 void run();
 void cleanup();
-void grabkeys(Window*);
+void grabkeys(Window);
 int wm_detected(Display*, XErrorEvent*);
 int onxerror(Display*, XErrorEvent*);
 void buttonpress(XEvent*);
@@ -282,7 +282,7 @@ maprequest(XEvent *e)
         // We can only focus of the windows was mapped
         focusclient(c);
 
-        grabkeys(&(c->win));
+        grabkeys(c->win);
 
         DEBUG("---End: MapRequest---");
 }
@@ -349,10 +349,8 @@ keypress(XEvent *e)
         for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
                 if (keysym == keys[i].keysym
                     && ev->state == (keys[i].modmask)
-                    && keys[i].f) {
+                    && keys[i].f)
                         keys[i].f(&(keys[i].arg));
-                        XSync(dpy, 0);
-                }
 }
 
 int
@@ -598,6 +596,10 @@ closeclient(Window w)
 
         arrangemon(m);
 
+        // Will remove focus if selc is NULL
+        if (!selc)
+                focus(0);
+
         focusclient(selc);
 
         DEBUG("---End: closeclient---");
@@ -609,10 +611,12 @@ focus(Window w)
         DEBUG("---Start: focus---");
 
         if (!w && !selc) {
+                XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
                 XDeleteProperty(
                         dpy,
                         root,
                         net_atoms[NET_ACTIVE]);
+                XSync(dpy, 0);
                 return;
         }
 
@@ -632,6 +636,7 @@ focus(Window w)
                 (unsigned char*) &w,
                 1);
 
+        XSync(dpy, 0);
         DEBUG("---End: focus---");
 }
 
@@ -642,16 +647,7 @@ focusclient(Client *c)
         if (!c)
                 return;
 
-        // Delete active hint of current selc
-        XDeleteProperty(
-                dpy,
-                root,
-                net_atoms[NET_ACTIVE]);
-
-        // selc should be focus already
         Tag *t = c->tag;
-        if (!t)
-                return;
 
         if (c != t->focusclients) {
                 if (c->prevfocus)
@@ -681,7 +677,7 @@ focusclient(Client *c)
         if (c->prevfocus)
                 setborder(c->prevfocus->win, borderwidth, bordercolor_inactive);
 
-        focus(0);
+        focus(selc->win);
         DEBUG("---End: focusclient---");
 }
 
@@ -856,7 +852,7 @@ drawdialog(Window w, XWindowAttributes *wa)
         DEBUG("---Start: drawdialog---");
 
         XMapWindow(dpy, w);
-        grabkeys(&w);
+        grabkeys(w);
         focus(w);
 
         DEBUG("---End: drawdialog---");
@@ -864,7 +860,7 @@ drawdialog(Window w, XWindowAttributes *wa)
 
 
 void
-grabkeys(Window *w)
+grabkeys(Window w)
 {
         DEBUG("---Start: grabkeys---");
         for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
@@ -872,11 +868,10 @@ grabkeys(Window *w)
                         dpy,
                         XKeysymToKeycode(dpy, keys[i].keysym),
                         keys[i].modmask,
-                        *w,
+                        w,
                         0,
                         GrabModeAsync,
-                        GrabModeAsync
-                );
+                        GrabModeAsync);
         DEBUG("---End: grabkeys---");
 }
 
@@ -992,7 +987,7 @@ mvwintotag(Arg *arg)
 
         // Arrange the monitor
         arrangemon(selmon);
-        
+
         // Focus previous client
         focusclient(pc);
 
@@ -1144,6 +1139,9 @@ cyclemon(Arg *arg)
         if (arg->i != 1 && arg->i != -1)
                 return;
 
+        // Previous tag
+        Tag *pt = currenttag(selmon);
+
         // Set selmon to chosen monitor
         if (arg->i == 1 && selmon->next)
                 selmon = selmon->next;
@@ -1152,13 +1150,24 @@ cyclemon(Arg *arg)
         else
                 return;
 
+        // Unfocus everything on previous monitor
+        for (Client *c = pt->clients; c; c = c->next)
+                setborder(c->win, borderwidth, bordercolor_inactive);
+        XDeleteProperty(
+                dpy,
+                root,
+                net_atoms[NET_ACTIVE]);
+        XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
+
+
         // Focus window on current tag
         Tag *t = currenttag(selmon);
 
-        // TODO: Check if neccessary
-        arrangemon(selmon);
-        
-        focusclient(t->focusclients);
+        // Focused client on new monitor is selc
+        selc = t->focusclients;
+        if (!selc)
+                focus(0);
+        focusclient(selc);
 
         DEBUG("---Stop: cyclemon---");
 }
