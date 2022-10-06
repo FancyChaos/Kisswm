@@ -136,7 +136,7 @@ void detach(Client*);
 void focusattach(Client*);
 void focusdetach(Client*);
 void focusclient(Client*);
-void focus(Window);
+void focus(Window, Client*);
 void arrange();
 void arrangemon(Monitor*);
 void updatemasteroffset(Arg*);
@@ -598,7 +598,7 @@ closeclient(Window w)
 
         // Will remove focus if selc is NULL
         if (!selc)
-                focus(0);
+                focus(0, NULL);
 
         focusclient(selc);
 
@@ -606,23 +606,18 @@ closeclient(Window w)
 }
 
 void
-focus(Window w)
+focus(Window w, Client *c)
 {
         DEBUG("---Start: focus---");
 
-        if (!w && !selc) {
-                XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
-                XDeleteProperty(
-                        dpy,
-                        root,
-                        net_atoms[NET_ACTIVE]);
-                XSync(dpy, 0);
-                return;
+        if (!w && !c) {
+                if (selc)
+                        w = selc->win;
+                else
+                        w = root;
+        } else if (!w && c) {
+                w = c->win;
         }
-
-        if (!w)
-                w = selc->win;
-
 
         XSetInputFocus(dpy, w, RevertToPointerRoot, CurrentTime);
         sendevent(w, &icccm_atoms[ICCCM_FOCUS]);
@@ -635,6 +630,12 @@ focus(Window w)
                 PropModeReplace,
                 (unsigned char*) &w,
                 1);
+
+        if (w == root)
+                XWarpPointer(dpy, 0, w, 0, 0, 0, 0, selmon->x + selmon->width / 2, selmon->y + selmon->height / 2);
+        else if (c && c->win == w)
+                XWarpPointer(dpy, 0, w, 0, 0, 0, 0,  c->width / 2, c->height / 2);
+
 
         XSync(dpy, 0);
         DEBUG("---End: focus---");
@@ -677,7 +678,7 @@ focusclient(Client *c)
         if (c->prevfocus)
                 setborder(c->prevfocus->win, borderwidth, bordercolor_inactive);
 
-        focus(selc->win);
+        focus(0, selc);
         DEBUG("---End: focusclient---");
 }
 
@@ -853,7 +854,7 @@ drawdialog(Window w, XWindowAttributes *wa)
 
         XMapWindow(dpy, w);
         grabkeys(w);
-        focus(w);
+        focus(w, NULL);
 
         DEBUG("---End: drawdialog---");
 }
@@ -1166,7 +1167,7 @@ cyclemon(Arg *arg)
         // Focused client on new monitor is selc
         selc = t->focusclients;
         if (!selc)
-                focus(0);
+                focus(0, NULL);
         focusclient(selc);
 
         DEBUG("---Stop: cyclemon---");
@@ -1210,6 +1211,7 @@ cycleclient(Arg *arg)
         }
 
         focusclient(tofocus);
+
         DEBUG("---End: cycleclient---");
 }
 
