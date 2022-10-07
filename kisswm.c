@@ -112,6 +112,7 @@ void maptag(Tag*, int);
 void unmaptag(Tag*);
 void spawn(Arg*);
 void mvwintotag(Arg*);
+void mvwintomon(Arg*);
 void followwintotag(Arg*);
 void mvwin(Arg*);
 void fullscreen(Arg*);
@@ -954,6 +955,60 @@ fullscreen(Arg* arg)
 }
 
 void
+mvwintomon(Arg *arg)
+{
+        DEBUG("---Start: mvwintomon---");
+
+        if (!selc)
+                return;
+        else if (!mons->next)
+                return;
+        else if (arg->i != 1 && arg->i != -1)
+                return;
+
+        // Target monitor to move window to
+        Monitor *tm;
+        if (arg->i == 1 && selmon->next)
+                tm = selmon->next;
+        else if (arg->i == -1 && selmon->prev)
+                tm = selmon->prev;
+        else
+                return;
+
+        // Target client to move to target monitor
+        Client *tc = selc;
+        // Current tag of client to move
+        Tag *ct = tc->tag;
+        // Current tag of the target monitor
+        Tag *tt = currenttag(tm);
+
+        // Do not allow moving when in fullscreen
+        if (ct->fsclient || tt->fsclient)
+                return;
+
+        detach(tc);
+        focusdetach(tc);
+
+        tc->m = tm;
+        tc->tag = tt;
+
+        attach(tc);
+        focusattach(tc);
+
+        setborder(tc->win, borderwidth, bordercolor_inactive);
+
+        arrangemon(tm);
+        arrangemon(selmon);
+
+        selc = ct->focusclients;
+        if (!selc)
+                focus(0, NULL);
+        focusclient(ct->focusclients);
+
+        DEBUG("---END: mvwintomon---");
+}
+
+void
 mvwintotag(Arg *arg)
 {
         DEBUG("---Start: mvwintotag---");
@@ -1152,8 +1207,9 @@ cyclemon(Arg *arg)
                 return;
 
         // Unfocus everything on previous monitor
-        for (Client *c = pt->clients; c; c = c->next)
-                setborder(c->win, borderwidth, bordercolor_inactive);
+        if (!pt->fsclient)
+                for (Client *c = pt->clients; c; c = c->next)
+                        setborder(c->win, borderwidth, bordercolor_inactive);
         XDeleteProperty(
                 dpy,
                 root,
