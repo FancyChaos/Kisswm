@@ -1282,11 +1282,15 @@ focustag(Arg *arg)
         if (tagtofocus == selmon->tag)
                 return;
 
-        // Clear old tag identifier in the statusbar
-        selmon->bartags[selmon->tag*2] = ' ';
-
         // Get current tag
         Tag *tc = currenttag(selmon);
+
+        // Clear old tag identifier in the statusbar
+        if (tc->clientnum)
+                selmon->bartags[selmon->tag*2] = '*';
+        else
+                selmon->bartags[selmon->tag*2] = ' ';
+
         // Update current tag of the current monitor
         selmon->tag = tagtofocus;
         // Get new tag
