@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#ifdef __linux__
+#include <bsd/string.h>
+#endif
 #include <stdarg.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -1161,9 +1164,6 @@ cycletag(Arg *arg)
         if (arg->i != 1 && arg->i != -1)
                 return;
 
-        // Chill for a bit
-        usleep(10*1000);
-
         // New tag
         unsigned int tn = 0;
 
@@ -1247,9 +1247,6 @@ cycleclient(Arg *arg)
 
         if  (t->clientnum < 2)
                 return;
-
-        // Chill for a bit
-        usleep(10*1000);
 
         Client *tofocus = NULL;
 
