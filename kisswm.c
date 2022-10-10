@@ -65,9 +65,9 @@ struct Statusbar {
 };
 
 struct Colors {
-        XftColor black;
-        XftColor white;
-        XftColor alpha;
+        XftColor xbarbg;
+        XftColor xbarfg;
+        XftColor xalpha;
 };
 
 struct Client {
@@ -106,6 +106,7 @@ struct Monitor {
         int width;
 };
 
+void createcolor(const char*, XftColor*);
 bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
 void mapclient(Client*);
@@ -190,7 +191,7 @@ Statusbar statusbar;
 
 XftFont *xfont;
 XGlyphInfo xglyph;
-Colors xcolors;
+Colors colors;
 int screen;
 int sh, sw;
 
@@ -403,14 +404,14 @@ drawbar(Monitor *m)
                 return;
         }
 
-        // Draw black rectangle over statusbar (clear window)
-        XftDrawRect(
-                statusbar.xdraw,
-                &xcolors.black,
-                m->x,
-                m->y,
-                (unsigned int) m->width,
-                (unsigned int) barheight);
+        if (*barbg != '\0')
+                XftDrawRect(
+                        statusbar.xdraw,
+                        &colors.xbarbg,
+                        m->x,
+                        m->y,
+                        (unsigned int) m->width,
+                        (unsigned int) barheight);
 
         int baroffset = (barheight - xfont->height) / 2;
         int glyphheight = 0;
@@ -431,7 +432,7 @@ drawbar(Monitor *m)
 
         XftDrawStringUtf8(
                 statusbar.xdraw,
-                &xcolors.white,
+                &colors.xbarfg,
                 xfont,
                 m->x,
                 m->y + (glyphheight + baroffset),
@@ -453,7 +454,7 @@ drawbar(Monitor *m)
 
         XftDrawStringUtf8(
                 statusbar.xdraw,
-                &xcolors.white,
+                &colors.xbarfg,
                 xfont,
                 m->x + (m->width - xglyph.width),
                 m->y + (glyphheight + baroffset),
@@ -1314,6 +1315,22 @@ focustag(Arg *arg)
 
 /*** Util functions ***/
 
+void
+createcolor(const char *color, XftColor *dst)
+{
+        if (*color == '\0')
+                return;
+
+        if (!XftColorAllocName(
+                    dpy,
+                    DefaultVisual(dpy, screen),
+                    DefaultColormap(dpy, screen),
+                    color,
+                    dst))
+                die("Could not load color: %s\n", color);
+
+}
+
 bool
 alreadymapped(Window w)
 {
@@ -1578,15 +1595,13 @@ setup()
         if (!xfont)
                 die("Cannot load font: %s\n", barfont);
 
-        // Setup colors
-        if (!XftColorAllocName(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), "white", &xcolors.white))
-                die("Could not load colors\n");
-        if (!XftColorAllocName(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), "black", &xcolors.black))
-                die("Could not load colors\n");
-
+        // Set up colors
         XRenderColor alpha = {0x0000, 0x0000, 0x0000, 0xffff};
-        if (!XftColorAllocValue(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), &alpha, &xcolors.alpha))
-                die("Could not load colors\n");
+        if (!XftColorAllocValue(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), &alpha, &colors.xalpha))
+                die("Could not load color: alpha\n");
+        createcolor(barbg, &colors.xbarbg);
+        createcolor(barfg, &colors.xbarfg);
+
 
         // Setup monitors and Tags
         updatemons();

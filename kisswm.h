@@ -4,6 +4,8 @@ static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=18:antialia
 
 static const char *barfont       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
 static int barheight = 40;
+static const char *barbg = "";
+static const char *barfg = "white";
 
 static int borderwidth = 3;
 static unsigned long bordercolor = 0xFAEBD7;
