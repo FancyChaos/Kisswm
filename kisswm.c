@@ -216,7 +216,10 @@ clientmessage(XEvent *e)
         } else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
-                        fullscreen(NULL);
+                            if (c->tag->fsclient == c && ev->data.l[0] == 0)
+                                    togglefullscreen(c);
+                            else if (!c->tag->fsclient && ev->data.l[0] == 1)
+                                    togglefullscreen(c);
                 }
         }
 
@@ -259,6 +262,7 @@ maprequest(XEvent *e)
 
         // Simply render a dialog window
         Atom wintype = getwintype(ev->window);
+
         if (net_win_types[NET_UTIL] == wintype ||
             net_win_types[NET_DIALOG] == wintype) {
                 drawdialog(ev->window, &wa);
@@ -297,6 +301,10 @@ configurenotify(XEvent *e)
 {
         DEBUG("---Start: ConfigureNotify---");
         XConfigureEvent *ev = &e->xconfigure;
+
+        if (ev->window != root)
+                return;
+
         DEBUG("---End: ConfigureNotify---");
 }
 
@@ -493,16 +501,25 @@ updatestatustext()
 /*** WM state changing functions ***/
 
 void
-togglefullscreen(Client *ct)
+togglefullscreen(Client *cc)
 {
         DEBUG("---Start: togglefullscreen---");
-        Tag *t = ct->tag;
+        if (!cc)
+                return;
+
+        Tag *t = cc->tag;
+
+        if (t->fsclient)
+                XDeleteProperty(
+                        dpy,
+                        t->fsclient->win,
+                        net_atoms[NET_STATE]);
 
         // set fullscreen client
-        t->fsclient = (t->fsclient) ? NULL : ct;
+        t->fsclient = (t->fsclient) ? NULL : cc;
 
         for (Client *c = t->clients; c; c = c->next) {
-                if (c == ct )
+                if (c == cc)
                         continue;
 
                 if (t->fsclient)
@@ -511,8 +528,20 @@ togglefullscreen(Client *ct)
                         mapclient(c);
         }
 
+        if (t->fsclient)
+                XChangeProperty(
+                        dpy,
+                        selc->win,
+                        net_atoms[NET_STATE],
+                        XA_ATOM,
+                        32,
+                        PropModeReplace,
+                        (unsigned char*) &net_atoms[NET_FULLSCREEN],
+                        1);
 
+        focusclient(cc);
         updatebars();
+        arrangemon(cc->m);
 
         DEBUG("---End: togglefullscreen---");
 }
@@ -953,9 +982,6 @@ fullscreen(Arg* arg)
                 return;
 
         togglefullscreen(selc);
-        focusclient(selc);
-        updatebars();
-        arrangemon(selmon);
 }
 
 void
@@ -1427,10 +1453,8 @@ wintoclient(Window w)
         for (m = mons; m; m = m->next)
                 for (int i = 0; i < tags_num; ++i)
                         for (c = m->tags[i].clients; c; c = c->next)
-                                if (c->win == w) {
+                                if (c->win == w)
                                         return c;
-                                        DEBUG("---End: wintoclient successfully---");
-                                }
 
         DEBUG("---End: wintoclient with NULL---");
 
