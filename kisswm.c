@@ -1353,7 +1353,8 @@ focustag(Arg *arg)
         maptag(tn, 1);
 
         // Focus the selected client on selected tag
-        focusclient(tn->focusclients);
+        selc = tn->focusclients;
+        focusclient(selc);
 
         // Create new tag identifier in the statusbar
         selmon->bartags[selmon->tag*2] = '>';
