@@ -60,8 +60,9 @@ typedef struct Statusbar Statusbar;
 struct Statusbar {
         Window win;
         XftDraw *xdraw;
-        int depth;
         Visual *visual;
+        int depth;
+        int width;
 };
 
 struct Colors {
@@ -106,6 +107,8 @@ struct Monitor {
         int width;
 };
 
+Monitor* createmon(XineramaScreenInfo*);
+void resizemons(XineramaScreenInfo*, int);
 void createcolor(const char*, XftColor*);
 bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
@@ -132,7 +135,7 @@ Client* wintoclient(Window);
 Bool sendevent(Window, Atom*);
 Tag* currenttag(Monitor*);
 void freemons();
-void updatemons();
+void initmons();
 void generatebartags(Monitor*);
 void _mvwintotag(Client*, Tag*);
 void togglefullscreen(Client*);
@@ -194,7 +197,6 @@ XGlyphInfo xglyph;
 Colors colors;
 int screen;
 int sh, sw;
-
 
 unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
 
@@ -302,8 +304,29 @@ configurenotify(XEvent *e)
         DEBUG("---Start: ConfigureNotify---");
         XConfigureEvent *ev = &e->xconfigure;
 
-        if (ev->window != root)
-                return;
+        if (ev->window != root) return;
+
+        sh = DisplayHeight(dpy, screen);
+        sw = DisplayWidth(dpy, screen);
+
+        int monitornum;
+        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
+
+        resizemons(info, monitornum);
+
+        Arg a = { .i = 0 };
+        updatemasteroffset(&a);
+
+        arrange();
+
+        statusbar.width = sw;
+        XWindowChanges wc = { .width = sw };
+        XConfigureWindow(dpy, statusbar.win, CWWidth, &wc);
+        updatebars();
+
+        XFree(info);
+
+        XSync(dpy, 0);
 
         DEBUG("---End: ConfigureNotify---");
 }
@@ -384,6 +407,17 @@ updatebars()
 
         updatestatustext();
 
+        // Clear bar
+        XClearArea(
+                dpy,
+                statusbar.win,
+                0,
+                0,
+                (unsigned int) statusbar.width,
+                (unsigned int) barheight,
+                0);
+
+        // Draw bar for each monitor
         for (Monitor *m = mons; m; m = m->next)
                 drawbar(m);
 
@@ -394,16 +428,6 @@ void
 drawbar(Monitor *m)
 {
         DEBUG("---Start: drawbar---");
-
-        // Clear bar
-        XClearArea(
-                dpy,
-                statusbar.win,
-                m->x,
-                m->y,
-                (unsigned int) m->width,
-                (unsigned int) barheight,
-                0);
 
         // Do not draw bar if fullscreen window on monitor
         Tag *t = currenttag(m);
@@ -1503,7 +1527,7 @@ generatebartags(Monitor *m)
 {
         // Create the bartags string which will be displayed in the statusbar
         m->bartagssize = (tags_num * 2) + 2;
-        m->bartags = ecalloc(m->bartagssize, 1);
+        m->bartags = (char*)ecalloc(m->bartagssize, 1);
 
         // Add spaces to all tags
         //  1 2 3 4 5 6 7 8 9
@@ -1519,30 +1543,59 @@ generatebartags(Monitor *m)
 }
 
 void
-updatemons()
+resizemons(XineramaScreenInfo *info, int mn)
 {
-        freemons();
-        if (!XineramaIsActive(dpy))
-                die("Just build with Xinerama mate\n");
+        DEBUG("---Start: ResizeMons---");
 
-        unsigned long tags_bytes = (tags_num * sizeof(Tag));
-        int monitornum;
-        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
-        for (int n = 0; n < monitornum; ++n) {
-                Monitor *m = malloc(sizeof(Monitor));
-                memset(m, 0, sizeof(Monitor));
-
+        Monitor *m = mons;
+        for (int n = 0; n < mn; ++n) {
                 m->snum = info[n].screen_number;
                 m->x = info[n].x_org;
                 m->y = info[n].y_org;
-                m->height = info[n].height;
                 m->width = info[n].width;
-                m->prev = NULL;
-                m->next = NULL;
+                m->height = info[n].height;
 
-                // Init the tags
-                m->tags = malloc(tags_bytes);
-                memset(m->tags, 0, tags_bytes);
+                if (!m->next) m->next = createmon(info + n);
+                m = m->next;
+        }
+
+        XSync(dpy, 0);
+        DEBUG("---End: ResizeMons---");
+}
+
+Monitor*
+createmon(XineramaScreenInfo *info)
+{
+        Monitor *m = (Monitor*)ecalloc(sizeof(Monitor), 1);
+
+        m->snum = info->screen_number;
+        m->x = info->x_org;
+        m->y = info->y_org;
+        m->width = info->width;
+        m->height = info->height;
+        m->prev = NULL;
+        m->next = NULL;
+
+        // Init the tags
+        unsigned long tags_bytes = (tags_num * sizeof(Tag));
+        m->tags = (Tag*)ecalloc(tags_bytes, 1);
+
+        // Generate the bartags string which is displayed inside the statusbar
+        generatebartags(m);
+
+        return m;
+}
+
+void
+initmons()
+{
+        if (!XineramaIsActive(dpy))
+                die("Just build with Xinerama mate\n");
+
+        int monitornum;
+        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
+        for (int n = 0; n < monitornum; ++n) {
+                Monitor *m = createmon(info + n);
 
                 if (!mons) {
                         mons = m;
@@ -1553,9 +1606,6 @@ updatemons()
                         lastmon->next = m;
                         m->prev = lastmon;
                 }
-
-                // Generate the bartags string which is displayed inside the statusbar
-                generatebartags(m);
         }
 
         XFree(info);
@@ -1568,7 +1618,7 @@ setup()
 
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
-        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|KeyPressMask|ButtonPressMask|PropertyChangeMask);
+        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|ButtonPressMask|PropertyChangeMask);
         XSync(dpy, 0);
 
         // Set the error handler
@@ -1628,11 +1678,13 @@ setup()
 
 
         // Setup monitors and Tags
-        updatemons();
+        initmons();
 
         // Create statusbar window
         sh = DisplayHeight(dpy, screen);
         sw = DisplayWidth(dpy, screen);
+
+        statusbar.width = sw;
 
         XSetWindowAttributes wa;
         wa.background_pixel = 0;
@@ -1664,7 +1716,7 @@ setup()
                         root,
                         0,
                         0,
-                        (unsigned int) sw,
+                        (unsigned int) statusbar.width,
                         (unsigned int) barheight,
                         0,
                         statusbar.depth,
