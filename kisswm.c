@@ -107,6 +107,7 @@ struct Monitor {
         int width;
 };
 
+void focusmon(Monitor*, bool);
 Monitor* createmon(XineramaScreenInfo*);
 void resizemons(XineramaScreenInfo*, int);
 void createcolor(const char*, XftColor*);
@@ -917,7 +918,6 @@ drawdialog(Window w, XWindowAttributes *wa)
         DEBUG("---End: drawdialog---");
 }
 
-
 void
 grabkeys(Window w)
 {
@@ -1236,26 +1236,13 @@ cycletag(Arg *arg)
 }
 
 void
-cyclemon(Arg *arg)
+focusmon(Monitor *m, bool setfocus)
 {
-        DEBUG("---Start: cyclemon---");
-
-        if (!mons->next)
-                return;
-
-        if (arg->i != 1 && arg->i != -1)
-                return;
+        DEBUG("---Start: focusmon---");
+        if (!m) return;
 
         // Previous tag
         Tag *pt = currenttag(selmon);
-
-        // Set selmon to chosen monitor
-        if (arg->i == 1 && selmon->next)
-                selmon = selmon->next;
-        else if (arg->i == -1 && selmon->prev)
-                selmon = selmon->prev;
-        else
-                return;
 
         // Unfocus everything on previous monitor
         if (!pt->fsclient)
@@ -1267,15 +1254,35 @@ cyclemon(Arg *arg)
                 net_atoms[NET_ACTIVE]);
         XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 
+        selmon = m;
+
+        if (!setfocus) return;
 
         // Focus window on current tag
         Tag *t = currenttag(selmon);
-
-        // Focused client on new monitor is selc
         selc = t->focusclients;
-        if (!selc)
-                focus(0, NULL);
+        if (!selc) focus(0, NULL);
         focusclient(selc);
+
+        DEBUG("---End: focusmon---");
+}
+
+void
+cyclemon(Arg *arg)
+{
+        DEBUG("---Start: cyclemon---");
+
+        if (!mons->next)
+                return;
+
+        if (arg->i != 1 && arg->i != -1)
+                return;
+
+        // Focus monitor if available
+        if (arg->i == 1 && selmon->next)
+                 focusmon(selmon->next, true);
+        else if (arg->i == -1 && selmon->prev)
+                focusmon(selmon->prev, true);
 
         DEBUG("---Stop: cyclemon---");
 }
@@ -1482,7 +1489,6 @@ wintoclient(Window w)
                                         return c;
 
         DEBUG("---End: wintoclient with NULL---");
-
         return NULL;
 }
 
