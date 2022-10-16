@@ -1550,13 +1550,14 @@ resizemons(XineramaScreenInfo *info, int mn)
 
         Monitor *m = mons;
         for (int n = 0; n < mn; ++n) {
+                if(!m) m = createmon(info + n);
+
                 m->snum = info[n].screen_number;
                 m->x = info[n].x_org;
                 m->y = info[n].y_org;
                 m->width = info[n].width;
                 m->height = info[n].height;
 
-                if (!m->next) m->next = createmon(info + n);
                 m = m->next;
         }
 
