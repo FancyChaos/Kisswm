@@ -108,7 +108,7 @@ struct Monitor {
         int width;
 };
 
-void focusmon(Monitor*, bool);
+void focusmon(Monitor*);
 Monitor* createmon(XineramaScreenInfo*);
 void resizemons(XineramaScreenInfo*, int);
 void createcolor(const char*, XftColor*);
@@ -1236,27 +1236,24 @@ cycletag(Arg *arg)
 }
 
 void
-focusmon(Monitor *m, bool setfocus)
+focusmon(Monitor *m)
 {
         DEBUG("---Start: focusmon---");
         if (!m) return;
 
-        // Previous tag
-        Tag *pt = currenttag(selmon);
+        // Previous monitor
+        Monitor *pm = selmon;
 
-        // Unfocus everything on previous monitor
-        if (!pt->fsclient)
-                for (Client *c = pt->clients; c; c = c->next)
-                        setborder(c->win, borderwidth, bordercolor_inactive);
+        selmon = m;
+
         XDeleteProperty(
                 dpy,
                 root,
                 net_atoms[NET_ACTIVE]);
         XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 
-        selmon = m;
-
-        if (!setfocus) return;
+        // Set borders to inactive on previous monitor
+        setborders(pm);
 
         // Focus window on current tag
         Tag *t = currenttag(selmon);
@@ -1280,9 +1277,9 @@ cyclemon(Arg *arg)
 
         // Focus monitor if available
         if (arg->i == 1 && selmon->next)
-                 focusmon(selmon->next, true);
+                 focusmon(selmon->next);
         else if (arg->i == -1 && selmon->prev)
-                focusmon(selmon->prev, true);
+                focusmon(selmon->prev);
 
         DEBUG("---Stop: cyclemon---");
 }
