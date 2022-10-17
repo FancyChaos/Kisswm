@@ -131,7 +131,7 @@ void cyclemon(Arg*);
 void killclient(Arg*);
 void closeclient(Window);
 void setup();
-Atom getwintype(Window);
+Atom getwinprop(Window, Atom);
 Client* wintoclient(Window);
 Bool sendevent(Window, Atom*);
 Tag* currenttag(Monitor*);
@@ -264,8 +264,7 @@ maprequest(XEvent *e)
                 return;
 
         // Simply render a dialog window
-        Atom wintype = getwintype(ev->window);
-
+        Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
         if (net_win_types[NET_UTIL] == wintype ||
             net_win_types[NET_DIALOG] == wintype) {
                 drawdialog(ev->window, &wa);
@@ -351,7 +350,7 @@ configurerequest(XEvent *e)
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
         // Only allow custom sizes for dialog windows
-        Atom wintype = getwintype(ev->window);
+        Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
         if (wintype != net_win_types[NET_UTIL] &&
             wintype != net_win_types[NET_DIALOG]) {
                 return;
@@ -913,6 +912,7 @@ drawdialog(Window w, XWindowAttributes *wa)
 
         XMapWindow(dpy, w);
         grabkeys(w);
+        setborder(w, borderwidth, bordercolor);
         focus(w, NULL);
 
         DEBUG("---End: drawdialog---");
@@ -1417,20 +1417,21 @@ setborder(Window w, int width, unsigned long color)
 }
 
 Atom
-getwintype(Window w)
+getwinprop(Window w, Atom a)
 {
+        Atom wintype;
         Atom actualtype;
         int actualformat;
         unsigned long nitems;
         unsigned long bytes;
-        unsigned char *data;
+        unsigned char *data = NULL;
 
         int ret = XGetWindowProperty(
                 dpy,
                 w,
-                net_atoms[NET_TYPE],
+                a,
                 0,
-                1,
+                sizeof(wintype),
                 False,
                 XA_ATOM,
                 &actualtype,
@@ -1440,9 +1441,9 @@ getwintype(Window w)
                 &data);
 
         if (ret != Success || !data)
-                return 0;
+                return None;
 
-        Atom wintype = (Atom)*data;
+        wintype = *(Atom *)data;
         XFree(data);
 
         return wintype;
