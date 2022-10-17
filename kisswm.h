@@ -10,6 +10,7 @@ static const char *barfg = "white";
 static int borderwidth = 3;
 static unsigned long bordercolor = 0xFAEBD7;
 static unsigned long bordercolor_inactive = 0x6F6C69;
+static unsigned long bordercolor_urgent = 0xCC3333;
 
 static const char *term[] = { "st", NULL };
 static const char *lock[] = { "fxlock", NULL };

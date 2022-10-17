@@ -89,6 +89,7 @@ struct Tag {
         int masteroffset;
         Client *clients;
         Client *focusclients;
+        Client *urgentclient;
         // Fullscreen client
         Client *fsclient;
 };
@@ -113,6 +114,7 @@ void resizemons(XineramaScreenInfo*, int);
 void createcolor(const char*, XftColor*);
 bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
+void setborders(Monitor*);
 void mapclient(Client*);
 void drawdialog(Window, XWindowAttributes*);
 void unmapclient(Client*);
@@ -215,7 +217,10 @@ clientmessage(XEvent *e)
                 return;
 
         if (ev->message_type == net_atoms[NET_ACTIVE]) {
-                // TODO: Display an urgent mark inside bartags string
+                c->m->bartags[c->m->tag * 2] = '!';
+                c->tag->urgentclient = c;
+                if (c->tag == currenttag(c->m))
+                        setborders(c->m);
         } else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
@@ -288,7 +293,7 @@ maprequest(XEvent *e)
         // This will reduce flicker of client
         arrangemon(c->m);
 
-        XMapWindow(dpy, c->win);
+        mapclient(c);
 
         // We can only focus of the windows was mapped
         focusclient(c);
@@ -636,6 +641,10 @@ closeclient(Window w)
         if (!c && !(c = wintoclient(w)))
                 return;
 
+        // Reset fsclient
+        if (c->tag->fsclient == c)
+                togglefullscreen(c);
+
         Monitor *m = c->m;
 
         detach(c);
@@ -646,9 +655,6 @@ closeclient(Window w)
 
         focusdetach(c);
 
-        // Reset fsclient
-        if (c->tag->fsclient == c)
-                togglefullscreen(c);
 
         free(c);
 
@@ -726,15 +732,9 @@ focusclient(Client *c)
         selc = c;
         selmon = c->m;
 
-        // Set active border color to window
-        if (t->fsclient == c)
-                setborder(c->win, 0, 0);
-        else
-                setborder(c->win, borderwidth, bordercolor);
+        if (c == t->urgentclient) t->urgentclient = NULL;
 
-        // Set previous window border to inactive
-        if (c->prevfocus)
-                setborder(c->prevfocus->win, borderwidth, bordercolor_inactive);
+        setborders(c->m);
 
         focus(0, selc);
         DEBUG("---End: focusclient---");
@@ -1049,7 +1049,7 @@ mvwintomon(Arg *arg)
         attach(tc);
         focusattach(tc);
 
-        setborder(tc->win, borderwidth, bordercolor_inactive);
+        setborders(tm);
 
         arrangemon(tm);
         arrangemon(selmon);
@@ -1400,6 +1400,39 @@ alreadymapped(Window w)
                                 if (c->win == w)
                                         return true;
         return false;
+}
+
+void
+setborders(Monitor *m)
+{
+        DEBUG("---Start: SetBorders---");
+        Tag *t = currenttag(m);
+        if (!t || !t->clients) return;
+
+        // Do not set border when fullscreen client
+        if (t->fsclient) {
+                setborder(t->fsclient->win, 0, 0);
+                return;
+        }
+
+        // Border inactive when given monitor is not selected
+        if (selmon != m) {
+                for (Client *c = t->clients; c; c = c->next)
+                        setborder(c->win, borderwidth, bordercolor_inactive);
+                return;
+        }
+
+        // Set borders for selected tag
+        for (Client *c = t->clients; c; c = c->next) {
+                if (c == t->focusclients)
+                        setborder(c->win, borderwidth, bordercolor);
+                else if (c == t->urgentclient)
+                        setborder(c->win, borderwidth, bordercolor_urgent);
+                else
+                        setborder(c->win, borderwidth, bordercolor_inactive);
+        }
+
+        DEBUG("---End: SetBorders---");
 }
 
 void
