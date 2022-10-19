@@ -107,6 +107,7 @@ struct Monitor {
         int y;
         int height;
         int width;
+        bool inactive;
 };
 
 void focusmon(Monitor*);
@@ -215,7 +216,7 @@ clientmessage(XEvent *e)
         if (!c)
                 return;
 
-        if (ev->message_type == net_atoms[NET_ACTIVE] && c != selc) {
+        if (ev->message_type == net_atoms[NET_ACTIVE] && c->tag != selc->tag) {
                 c->m->bartags[c->m->tag * 2] = '!';
                 c->tag->urgentclient = c;
                 setborders(c->tag);
@@ -293,7 +294,7 @@ maprequest(XEvent *e)
 
         mapclient(c);
 
-        // We can only focus of the windows was mapped
+        // Focus new client
         focusclient(c);
 
         grabkeys(c->win);
@@ -317,11 +318,13 @@ configurenotify(XEvent *e)
 
         resizemons(info, monitornum);
 
+        // Update master offset if screen order changed
         Arg a = { .i = 0 };
         updatemasteroffset(&a);
 
         arrange();
 
+        // Update statusbar to new width of combined monitors
         statusbar.width = sw;
         XWindowChanges wc = { .width = sw };
         XConfigureWindow(dpy, statusbar.win, CWWidth, &wc);
@@ -527,15 +530,34 @@ togglefullscreen(Client *cc)
 
         Tag *t = cc->tag;
 
-        if (t->fsclient)
+        if (t->fsclient) {
                 XDeleteProperty(
                         dpy,
                         t->fsclient->win,
                         net_atoms[NET_STATE]);
+        }
 
         // set fullscreen client
         t->fsclient = (t->fsclient) ? NULL : cc;
 
+        focusclient(cc);
+        if (t->fsclient) {
+                XChangeProperty(
+                        dpy,
+                        selc->win,
+                        net_atoms[NET_STATE],
+                        XA_ATOM,
+                        32,
+                        PropModeReplace,
+                        (unsigned char*) &net_atoms[NET_FULLSCREEN],
+                        1);
+        }
+
+        updatebars();
+        for (Monitor *m = mons; m; m = m->next) setborders(currenttag(m));
+        arrangemon(cc->m);
+
+        // Unmap or map client depending if fullscreen
         for (Client *c = t->clients; c; c = c->next) {
                 if (c == cc)
                         continue;
@@ -546,21 +568,6 @@ togglefullscreen(Client *cc)
                         mapclient(c);
         }
 
-        focusclient(cc);
-        if (t->fsclient)
-                XChangeProperty(
-                        dpy,
-                        selc->win,
-                        net_atoms[NET_STATE],
-                        XA_ATOM,
-                        32,
-                        PropModeReplace,
-                        (unsigned char*) &net_atoms[NET_FULLSCREEN],
-                        1);
-
-        updatebars();
-        for (Monitor *m = mons; m; m = m->next) setborders(currenttag(m));
-        arrangemon(cc->m);
 
         DEBUG("---End: togglefullscreen---");
 }
@@ -650,10 +657,6 @@ closeclient(Window w)
 
         arrangemon(m);
 
-        // Will remove focus if selc is NULL
-        if (!selc)
-                focus(0, NULL);
-
         focusclient(selc);
 
         DEBUG("---End: closeclient---");
@@ -699,8 +702,11 @@ void
 focusclient(Client *c)
 {
         DEBUG("---Start: focusclient---");
-        if (!c)
+        if (!c) {
+                selc = NULL;
+                focus(0, NULL);
                 return;
+        }
 
         Tag *t = c->tag;
 
@@ -1019,6 +1025,9 @@ mvwintomon(Arg *arg)
         else
                 return;
 
+        // Do not do anything if in inactive state
+        if (tm->inactive) return;
+
         // Target client to move to target monitor
         Client *tc = selc;
         // Current tag of client to move
@@ -1044,9 +1053,6 @@ mvwintomon(Arg *arg)
         arrangemon(tm);
         arrangemon(selmon);
 
-        selc = ct->focusclients;
-        if (!selc)
-                focus(0, NULL);
         focusclient(ct->focusclients);
 
         DEBUG("---END: mvwintomon---");
@@ -1229,7 +1235,7 @@ void
 focusmon(Monitor *m)
 {
         DEBUG("---Start: focusmon---");
-        if (!m) return;
+        if (!m || m->inactive) return;
 
         // Previous monitor
         Monitor *pm = selmon;
@@ -1243,13 +1249,11 @@ focusmon(Monitor *m)
         XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 
         // Set borders to inactive on previous monitor
-        setborders(currenttag(pm));
+        if (pm != selmon) setborders(currenttag(pm));
 
         // Focus window on current tag
         Tag *t = currenttag(selmon);
-        selc = t->focusclients;
-        if (!selc) focus(0, NULL);
-        focusclient(selc);
+        focusclient(t->focusclients);
 
         DEBUG("---End: focusmon---");
 }
@@ -1267,7 +1271,7 @@ cyclemon(Arg *arg)
 
         // Focus monitor if available
         if (arg->i == 1 && selmon->next)
-                 focusmon(selmon->next);
+                focusmon(selmon->next);
         else if (arg->i == -1 && selmon->prev)
                 focusmon(selmon->prev);
 
@@ -1347,8 +1351,7 @@ focustag(Arg *arg)
         maptag(tn, 1);
 
         // Focus the selected client on selected tag
-        selc = tn->focusclients;
-        focusclient(selc);
+        focusclient(tn->focusclients);
 
         // Create new tag identifier in the statusbar
         selmon->bartags[selmon->tag*2] = '>';
@@ -1575,7 +1578,9 @@ resizemons(XineramaScreenInfo *info, int mn)
         DEBUG("---Start: ResizeMons---");
 
         Monitor *m = mons;
-        for (int n = 0; n < mn; ++n) {
+
+        int n = 0;
+        for (; n < mn; ++n) {
                 if(!m) m = createmon(info + n);
 
                 m->snum = info[n].screen_number;
@@ -1583,11 +1588,16 @@ resizemons(XineramaScreenInfo *info, int mn)
                 m->y = info[n].y_org;
                 m->width = info[n].width;
                 m->height = info[n].height;
+                // Focus first mon
+                if (!n) focusmon(m);
 
+                m->inactive = false;
                 m = m->next;
         }
 
-        XSync(dpy, 0);
+        // Set dangling monitors to inactive (disconnected monitors)
+        for (; m; m = m->next) m->inactive = true;
+
         DEBUG("---End: ResizeMons---");
 }
 
@@ -1604,6 +1614,7 @@ createmon(XineramaScreenInfo *info)
         m->tag = 0;
         m->prev = NULL;
         m->next = NULL;
+        m->inactive = false;
 
         // Init the tags
         unsigned long tags_bytes = (tags_num * sizeof(Tag));
