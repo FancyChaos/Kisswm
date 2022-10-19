@@ -1581,7 +1581,7 @@ resizemons(XineramaScreenInfo *info, int mn)
 
         int n = 0;
         for (; n < mn; ++n) {
-                if(!m) m = createmon(info + n);
+                if (!m) m = createmon(info + n);
 
                 m->snum = info[n].screen_number;
                 m->x = info[n].x_org;
@@ -1621,6 +1621,17 @@ createmon(XineramaScreenInfo *info)
         m->tags = (Tag*)ecalloc(tags_bytes, 1);
         for (int i = 0; i < tags_num; ++i) m->tags[i].mon = m;
 
+        // Automatically append monitors to our list of monitors
+        if (!mons) {
+                mons = m;
+                selmon = m;
+        } else {
+                Monitor *lastmon;
+                for (lastmon = mons; lastmon->next; lastmon = lastmon->next);
+                lastmon->next = m;
+                m->prev = lastmon;
+        }
+
         // Generate the bartags string which is displayed inside the statusbar
         generatebartags(m);
 
@@ -1636,17 +1647,7 @@ initmons()
         int monitornum;
         XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
         for (int n = 0; n < monitornum; ++n) {
-                Monitor *m = createmon(info + n);
-
-                if (!mons) {
-                        mons = m;
-                        selmon = m;
-                } else {
-                        Monitor *lastmon;
-                        for (lastmon = mons; lastmon->next; lastmon = lastmon->next);
-                        lastmon->next = m;
-                        m->prev = lastmon;
-                }
+                createmon(info + n);
         }
 
         XFree(info);
