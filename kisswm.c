@@ -87,6 +87,7 @@ struct Client {
 struct Tag {
         int clientnum;
         int masteroffset;
+        Monitor *mon;
         Client *clients;
         Client *focusclients;
         Client *urgentclient;
@@ -114,7 +115,7 @@ void resizemons(XineramaScreenInfo*, int);
 void createcolor(const char*, XftColor*);
 bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
-void setborders(Monitor*);
+void setborders(Tag*);
 void mapclient(Client*);
 void drawdialog(Window, XWindowAttributes*);
 void unmapclient(Client*);
@@ -156,7 +157,6 @@ void cleanup();
 void grabkeys(Window);
 int wm_detected(Display*, XErrorEvent*);
 int onxerror(Display*, XErrorEvent*);
-void buttonpress(XEvent*);
 void keypress(XEvent*);
 void configurenotify(XEvent*);
 void propertynotify(XEvent*);
@@ -171,7 +171,6 @@ void updatestatustext();
 void drawbar();
 
 void (*handler[LASTEvent])(XEvent*) = {
-        [ButtonPress] = buttonpress,
         [KeyPress] = keypress,
         [ConfigureNotify] = configurenotify,
         [ConfigureRequest] = configurerequest,
@@ -216,11 +215,10 @@ clientmessage(XEvent *e)
         if (!c)
                 return;
 
-        if (ev->message_type == net_atoms[NET_ACTIVE]) {
+        if (ev->message_type == net_atoms[NET_ACTIVE] && c != selc) {
                 c->m->bartags[c->m->tag * 2] = '!';
                 c->tag->urgentclient = c;
-                if (c->tag == currenttag(c->m))
-                        setborders(c->m);
+                setborders(c->tag);
         } else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
@@ -371,15 +369,6 @@ configurerequest(XEvent *e)
         XConfigureWindow(dpy, ev->window, (unsigned int)ev->value_mask, &wc);
         DEBUG("---End: ConfigureRequest---");
 }
-
-void
-buttonpress(XEvent *e)
-{
-        DEBUG("---Start: ButtonPress---");
-        XButtonPressedEvent *ev = &e->xbutton;
-        DEBUG("---End: ButtonPress---");
-}
-
 
 void
 keypress(XEvent *e)
@@ -557,6 +546,7 @@ togglefullscreen(Client *cc)
                         mapclient(c);
         }
 
+        focusclient(cc);
         if (t->fsclient)
                 XChangeProperty(
                         dpy,
@@ -568,8 +558,8 @@ togglefullscreen(Client *cc)
                         (unsigned char*) &net_atoms[NET_FULLSCREEN],
                         1);
 
-        focusclient(cc);
         updatebars();
+        for (Monitor *m = mons; m; m = m->next) setborders(currenttag(m));
         arrangemon(cc->m);
 
         DEBUG("---End: togglefullscreen---");
@@ -734,7 +724,7 @@ focusclient(Client *c)
 
         if (c == t->urgentclient) t->urgentclient = NULL;
 
-        setborders(c->m);
+        setborders(c->tag);
 
         focus(0, selc);
         DEBUG("---End: focusclient---");
@@ -1049,7 +1039,7 @@ mvwintomon(Arg *arg)
         attach(tc);
         focusattach(tc);
 
-        setborders(tm);
+        setborders(currenttag(tm));
 
         arrangemon(tm);
         arrangemon(selmon);
@@ -1253,7 +1243,7 @@ focusmon(Monitor *m)
         XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 
         // Set borders to inactive on previous monitor
-        setborders(pm);
+        setborders(currenttag(pm));
 
         // Focus window on current tag
         Tag *t = currenttag(selmon);
@@ -1400,10 +1390,9 @@ alreadymapped(Window w)
 }
 
 void
-setborders(Monitor *m)
+setborders(Tag *t)
 {
         DEBUG("---Start: SetBorders---");
-        Tag *t = currenttag(m);
         if (!t || !t->clients) return;
 
         // Do not set border when fullscreen client
@@ -1412,8 +1401,8 @@ setborders(Monitor *m)
                 return;
         }
 
-        // Border inactive when given monitor is not selected
-        if (selmon != m) {
+        // Border inactive when monitor is not selected
+        if (selmon != t->mon) {
                 for (Client *c = t->clients; c; c = c->next)
                         setborder(c->win, borderwidth, bordercolor_inactive);
                 return;
@@ -1612,12 +1601,14 @@ createmon(XineramaScreenInfo *info)
         m->y = info->y_org;
         m->width = info->width;
         m->height = info->height;
+        m->tag = 0;
         m->prev = NULL;
         m->next = NULL;
 
         // Init the tags
         unsigned long tags_bytes = (tags_num * sizeof(Tag));
         m->tags = (Tag*)ecalloc(tags_bytes, 1);
+        for (int i = 0; i < tags_num; ++i) m->tags[i].mon = m;
 
         // Generate the bartags string which is displayed inside the statusbar
         generatebartags(m);
@@ -1657,7 +1648,7 @@ setup()
 
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
-        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|ButtonPressMask|PropertyChangeMask);
+        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask);
         XSync(dpy, 0);
 
         // Set the error handler
