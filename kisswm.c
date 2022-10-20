@@ -110,6 +110,7 @@ struct Monitor {
         bool inactive;
 };
 
+void updatemonmasteroffset(Monitor*, int);
 void focusmon(Monitor*);
 Monitor* createmon(XineramaScreenInfo*);
 void resizemons(XineramaScreenInfo*, int);
@@ -199,7 +200,7 @@ XftFont *xfont;
 XGlyphInfo xglyph;
 Colors colors;
 int screen;
-int sh, sw;
+int sw;
 int currmonitornum;
 
 unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
@@ -311,30 +312,28 @@ configurenotify(XEvent *e)
 
         if (ev->window != root) return;
 
-        sh = DisplayHeight(dpy, screen);
-        sw = DisplayWidth(dpy, screen);
-
         int monitornum;
         XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
-
         resizemons(info, monitornum);
 
-        // Update master offset if screen order changed
-        Arg a = { .i = 0 };
-        updatemasteroffset(&a);
+        // Calculate combined monitor width
+        sw = 0;
+        for (Monitor *m = mons; m; m = m->next) sw += m->width;
 
         arrange();
 
         // Update statusbar to new width of combined monitors
         statusbar.width = sw;
-        XWindowChanges wc = { .width = sw };
-        XConfigureWindow(dpy, statusbar.win, CWWidth, &wc);
+        XWindowChanges wc = {
+                .width = statusbar.width,
+                .height = barheight,
+                .y = 0,
+                .x = 0};
+        XConfigureWindow(dpy, statusbar.win, CWX|CWY|CWWidth|CWHeight, &wc);
         updatebars();
 
         XFree(info);
-
         XSync(dpy, 0);
-
         DEBUG("---End: ConfigureNotify---");
 }
 
@@ -836,6 +835,25 @@ attach(Client *c)
 }
 
 void
+updatemonmasteroffset(Monitor *m, int offset)
+{
+        if (!m) return;
+
+        // Only allow masteroffset adjustment if at least 2 clients are present
+        Tag *t = currenttag(m);
+        if (t->clientnum < 2) return;
+
+        int halfwidth = m->width / 2;
+        int updatedmasteroffset = offset ? (t->masteroffset + offset) : 0;
+
+        // Do not adjust if masteroffset already too small/big
+        if ((halfwidth + updatedmasteroffset) < 100) return;
+        else if ((halfwidth + updatedmasteroffset) > (m->width - 100)) return;
+
+        t->masteroffset = updatedmasteroffset;
+}
+
+void
 arrange()
 {
         DEBUG("---Start: arrange---");
@@ -936,24 +954,7 @@ grabkeys(Window w)
 void
 updatemasteroffset(Arg *arg)
 {
-        if (!selmon)
-                return;
-
-        // Only allow masteroffset adjustment if at least 2 clients are present
-        Tag *t = currenttag(selmon);
-        if (t->clientnum < 2)
-                return;
-
-        int halfwidth = selmon->width / 2;
-        int updatedmasteroffset = t->masteroffset + arg->i;
-
-        // Do not adjust if masteroffset already too small/big
-        if ((halfwidth + updatedmasteroffset) < 100)
-                return;
-        else if ((halfwidth + updatedmasteroffset) > (selmon->width - 100))
-                return;
-
-        t->masteroffset = updatedmasteroffset;
+        updatemonmasteroffset(selmon, arg->i);
         arrangemon(selmon);
 }
 
@@ -1586,6 +1587,7 @@ resizemons(XineramaScreenInfo *info, int mn)
                 m->y = info[n].y_org;
                 m->width = info[n].width;
                 m->height = info[n].height;
+                updatemonmasteroffset(m, 0);
                 // Focus first mon
                 if (!n) focusmon(m);
 
@@ -1722,7 +1724,6 @@ setup()
         initmons();
 
         // Create statusbar window
-        sh = DisplayHeight(dpy, screen);
         sw = DisplayWidth(dpy, screen);
 
         statusbar.width = sw;
