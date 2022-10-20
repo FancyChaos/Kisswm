@@ -191,7 +191,7 @@ Atom net_win_types[NET_TYPES_END];
 
 Display *dpy;
 Window root;
-Monitor *mons, *selmon;
+Monitor *mons, *selmon, *lastmon;
 Client *selc;
 Statusbar statusbar;
 
@@ -200,6 +200,7 @@ XGlyphInfo xglyph;
 Colors colors;
 int screen;
 int sh, sw;
+int currmonitornum;
 
 unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
 
@@ -1263,17 +1264,14 @@ cyclemon(Arg *arg)
 {
         DEBUG("---Start: cyclemon---");
 
-        if (!mons->next)
-                return;
-
         if (arg->i != 1 && arg->i != -1)
                 return;
 
         // Focus monitor if available
-        if (arg->i == 1 && selmon->next)
-                focusmon(selmon->next);
-        else if (arg->i == -1 && selmon->prev)
-                focusmon(selmon->prev);
+        if (arg->i == 1)
+                focusmon(selmon->next ? selmon->next : mons);
+        else if (arg->i == -1)
+                focusmon(selmon->prev ? selmon->prev : lastmon);
 
         DEBUG("---Stop: cyclemon---");
 }
@@ -1595,6 +1593,8 @@ resizemons(XineramaScreenInfo *info, int mn)
                 m = m->next;
         }
 
+        currmonitornum = mn;
+
         // Set dangling monitors to inactive (disconnected monitors)
         for (; m; m = m->next) m->inactive = true;
 
@@ -1625,11 +1625,11 @@ createmon(XineramaScreenInfo *info)
         if (!mons) {
                 mons = m;
                 selmon = m;
+                lastmon = m;
         } else {
-                Monitor *lastmon;
-                for (lastmon = mons; lastmon->next; lastmon = lastmon->next);
                 lastmon->next = m;
                 m->prev = lastmon;
+                lastmon = m;
         }
 
         // Generate the bartags string which is displayed inside the statusbar
@@ -1644,9 +1644,8 @@ initmons()
         if (!XineramaIsActive(dpy))
                 die("Just build with Xinerama mate\n");
 
-        int monitornum;
-        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
-        for (int n = 0; n < monitornum; ++n) {
+        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &currmonitornum);
+        for (int n = 0; n < currmonitornum; ++n) {
                 createmon(info + n);
         }
 
