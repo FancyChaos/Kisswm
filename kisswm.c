@@ -405,16 +405,6 @@ updatebars()
 
         updatestatustext();
 
-        // Clear bar
-        XClearArea(
-                dpy,
-                statusbar.win,
-                0,
-                0,
-                (unsigned int) statusbar.width,
-                (unsigned int) barheight,
-                0);
-
         // Draw bar for each monitor
         for (Monitor *m = mons; m; m = m->next)
                 drawbar(m);
@@ -426,6 +416,16 @@ void
 drawbar(Monitor *m)
 {
         DEBUG("---Start: drawbar---");
+
+        // Clear bar section
+        XClearArea(
+                dpy,
+                statusbar.win,
+                m->x,
+                0,
+                (unsigned int) m->width,
+                (unsigned int) barheight,
+                0);
 
         // Do not draw bar if fullscreen window on monitor
         Tag *t = currenttag(m);
@@ -554,7 +554,7 @@ togglefullscreen(Client *cc)
                         1);
         }
 
-        updatebars();
+        drawbar(cc->m);
         for (Monitor *m = mons; m; m = m->next) setborders(currenttag(m));
         arrangemon(cc->m);
 
@@ -568,7 +568,6 @@ togglefullscreen(Client *cc)
                 else
                         mapclient(c);
         }
-
 
         DEBUG("---End: togglefullscreen---");
 }
@@ -653,12 +652,18 @@ closeclient(Window w)
 
         focusdetach(c);
 
+        // Clear statusbar if last client and not focused
+        if (c->tag->clientnum == 0 && currenttag(c->m) != c->tag)
+                c->m->bartags[gettagnum(c->tag) * 2] = ' ';
+
 
         free(c);
 
         arrangemon(m);
 
         focusclient(selc);
+
+        drawbar(m);
 
         DEBUG("---End: closeclient---");
 }
@@ -1356,7 +1361,7 @@ focustag(Arg *arg)
         // Create new tag identifier in the statusbar
         selmon->bartags[selmon->tag*2] = '>';
 
-        updatebars();
+        drawbar(selmon);
         DEBUG("---End: focustag---");
 }
 
