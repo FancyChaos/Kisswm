@@ -110,6 +110,7 @@ struct Monitor {
         bool inactive;
 };
 
+int gettagnum(Tag*);
 void updatemonmasteroffset(Monitor*, int);
 void focusmon(Monitor*);
 Monitor* createmon(XineramaScreenInfo*);
@@ -219,7 +220,7 @@ clientmessage(XEvent *e)
                 return;
 
         if (ev->message_type == net_atoms[NET_ACTIVE] && c->tag != selc->tag) {
-                c->m->bartags[c->m->tag * 2] = '!';
+                c->m->bartags[gettagnum(c->tag) * 2] = '!';
                 c->tag->urgentclient = c;
                 setborders(c->tag);
         } else if (ev->message_type == net_atoms[NET_STATE]) {
@@ -1362,6 +1363,18 @@ focustag(Arg *arg)
 
 /*** Util functions ***/
 
+int
+gettagnum(Tag *t)
+{
+        if (!t) return -1;
+
+        for (int i = 0; i < tags_num; ++i)
+                if (&t->mon->tags[i] == t)
+                        return i;
+
+        return -1;
+}
+
 void
 createcolor(const char *color, XftColor *dst)
 {
@@ -1403,16 +1416,9 @@ setborders(Tag *t)
                 return;
         }
 
-        // Border inactive when monitor is not selected
-        if (selmon != t->mon) {
-                for (Client *c = t->clients; c; c = c->next)
-                        setborder(c->win, borderwidth, bordercolor_inactive);
-                return;
-        }
-
         // Set borders for selected tag
         for (Client *c = t->clients; c; c = c->next) {
-                if (c == t->focusclients)
+                if (c == t->focusclients && selmon == t->mon)
                         setborder(c->win, borderwidth, bordercolor);
                 else if (c == t->urgentclient)
                         setborder(c->win, borderwidth, bordercolor_urgent);
