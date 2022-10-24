@@ -1566,8 +1566,12 @@ void
 generatebartags(Monitor *m)
 {
         // Create the bartags string which will be displayed in the statusbar
-        m->bartagssize = (tags_num * 2) + 2;
+        m->bartagssize = (tags_num * 2) + 1;
+        // Add monitor indicator ' | n'
+        m->bartagssize += 4;
+
         m->bartags = (char*)ecalloc(m->bartagssize, 1);
+        m->bartags[m->bartagssize - 1] = '\0';
 
         // Add spaces to all tags
         //  1 2 3 4 5 6 7 8 9
@@ -1576,7 +1580,9 @@ generatebartags(Monitor *m)
                 m->bartags[i*2] = ' ';
                 j += 1;
         }
-        m->bartags[m->bartagssize - 1] = '\0';
+
+        // Show monitor number
+        snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
 
         // We start on first tag
         m->bartags[0] = '>';
@@ -1599,6 +1605,8 @@ resizemons(XineramaScreenInfo *info, int mn)
                 m->width = info[n].width;
                 m->height = info[n].height;
                 updatemonmasteroffset(m, 0);
+                // Change monitor num indicator
+                snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
                 // Focus first mon
                 if (!n) focusmon(m);
 
