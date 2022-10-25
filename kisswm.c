@@ -63,6 +63,7 @@ struct Statusbar {
         Visual *visual;
         int depth;
         int width;
+        int height;
 };
 
 struct Colors {
@@ -327,7 +328,7 @@ configurenotify(XEvent *e)
         statusbar.width = sw;
         XWindowChanges wc = {
                 .width = statusbar.width,
-                .height = barheight,
+                .height = statusbar.height,
                 .y = 0,
                 .x = 0};
         XConfigureWindow(dpy, statusbar.win, CWX|CWY|CWWidth|CWHeight, &wc);
@@ -424,7 +425,7 @@ drawbar(Monitor *m)
                 m->x,
                 0,
                 (unsigned int) m->width,
-                (unsigned int) barheight,
+                (unsigned int) statusbar.height,
                 0);
 
         // Do not draw bar if fullscreen window on monitor
@@ -441,31 +442,29 @@ drawbar(Monitor *m)
                         m->x,
                         m->y,
                         (unsigned int) m->width,
-                        (unsigned int) barheight);
-
-        int baroffset = (barheight - xfont->height) / 2;
-        int glyphheight = 0;
+                        (unsigned int) statusbar.height);
 
         int bartagslen = (int) strnlen(m->bartags, m->bartagssize);
         int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
 
-        // Draw Tags first
+        // Get glyph information about statusbartags (Dimensions of text)
         XftTextExtentsUtf8(
                 dpy,
                 xfont,
                 (XftChar8 *) m->bartags,
                 bartagslen,
                 &xglyph);
+        int glyphheight = xglyph.height;
+        int baroffset = (statusbar.height - xfont->height) / 2;
+        if (baroffset < 0) baroffset = 0;
 
-        glyphheight = xglyph.height;
-
-
+        // Draw statusbartags text
         XftDrawStringUtf8(
                 statusbar.xdraw,
                 &colors.xbarfg,
                 xfont,
                 m->x,
-                m->y + (glyphheight + baroffset),
+                m->y + glyphheight + baroffset,
                 (XftChar8 *) m->bartags,
                 bartagslen);
 
@@ -474,7 +473,7 @@ drawbar(Monitor *m)
                 return;
         }
 
-        // Draw statubarstatus
+        // Get glyph information about statusbarstatus (Dimensions of text)
         XftTextExtentsUtf8 (
                 dpy,
                 xfont,
@@ -482,12 +481,13 @@ drawbar(Monitor *m)
                 barstatuslen,
                 &xglyph);
 
+        // Draw statubarstatus
         XftDrawStringUtf8(
                 statusbar.xdraw,
                 &colors.xbarfg,
                 xfont,
                 m->x + (m->width - xglyph.width),
-                m->y + (glyphheight + baroffset),
+                m->y + glyphheight + baroffset,
                 (XftChar8 *) barstatus,
                 barstatuslen);
 
@@ -902,9 +902,9 @@ arrangemon(Monitor *m)
         // First client gets full or half monitor if multiple clients
         Client *fc = t->clients;
         fc->width = wc.width = ((t->clientnum == 1) ? m->width : masterarea) - borderoffset;
-        fc->height = wc.height = m->height - barheight - borderoffset;
+        fc->height = wc.height = m->height - statusbar.height - borderoffset;
         fc->x = wc.x = m->x;
-        fc->y = wc.y = m->y + barheight;
+        fc->y = wc.y = m->y + statusbar.height;
         XConfigureWindow(dpy, fc->win, CWY|CWX|CWWidth|CWHeight, &wc);
 
         if (!fc->next) {
@@ -913,7 +913,7 @@ arrangemon(Monitor *m)
         }
 
         // Draw rest of the clients to the right of the screen
-        int rightheight = (m->height - barheight) / (t->clientnum - 1);
+        int rightheight = (m->height - statusbar.height) / (t->clientnum - 1);
         for (Client *c = fc->next; c; c = c->next) {
                 c->width = wc.width = m->width - masterarea - borderoffset;
                 c->height = wc.height = rightheight - borderoffset;
@@ -1746,6 +1746,7 @@ setup()
         sw = DisplayWidth(dpy, screen);
 
         statusbar.width = sw;
+        statusbar.height = barheight;
 
         XSetWindowAttributes wa;
         wa.background_pixel = 0;
