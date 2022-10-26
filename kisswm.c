@@ -111,6 +111,7 @@ struct Monitor {
         bool inactive;
 };
 
+unsigned int cleanmask(unsigned int);
 int gettagnum(Tag*);
 void updatemonmasteroffset(Monitor*, int);
 void focusmon(Monitor*);
@@ -157,8 +158,7 @@ void arrange();
 void arrangemon(Monitor*);
 void updatemasteroffset(Arg*);
 void run();
-void cleanup();
-void grabkeys(Window);
+void grabkeys();
 int wm_detected(Display*, XErrorEvent*);
 int onxerror(Display*, XErrorEvent*);
 void keypress(XEvent*);
@@ -169,6 +169,7 @@ void maprequest(XEvent*);
 void unmapnotify(XEvent*);
 void destroynotify(XEvent*);
 void clientmessage(XEvent*);
+void mappingnotify(XEvent*);
 
 void updatebars();
 void updatestatustext();
@@ -180,6 +181,7 @@ void (*handler[LASTEvent])(XEvent*) = {
         [ConfigureRequest] = configurerequest,
         [PropertyNotify] = propertynotify,
         [MapRequest] = maprequest,
+        [MappingNotify] = mappingnotify,
         [UnmapNotify] = unmapnotify,
         [DestroyNotify] = destroynotify,
         [ClientMessage] = clientmessage
@@ -211,6 +213,20 @@ char barstatus[256];
 
 
 /*** X11 Eventhandling ****/
+
+void
+mappingnotify(XEvent *e)
+{
+        DEBUG("---Start: MappingNotify---");
+        XMappingEvent *ev = &e->xmapping;
+
+        if (ev->request != MappingModifier && ev->request != MappingKeyboard) return;
+
+        XRefreshKeyboardMapping(ev);
+        grabkeys();
+        DEBUG("---End: MappingNotify---");
+}
+
 void
 clientmessage(XEvent *e)
 {
@@ -301,8 +317,6 @@ maprequest(XEvent *e)
         // Focus new client
         focusclient(c);
 
-        grabkeys(c->win);
-
         DEBUG("---End: MapRequest---");
 }
 
@@ -383,7 +397,7 @@ keypress(XEvent *e)
 
         for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
                 if (keysym == keys[i].keysym
-                    && ev->state == (keys[i].modmask)
+                    && cleanmask(ev->state) == cleanmask(keys[i].modmask)
                     && keys[i].f)
                         keys[i].f(&(keys[i].arg));
 }
@@ -932,7 +946,6 @@ drawdialog(Window w, XWindowAttributes *wa)
         DEBUG("---Start: drawdialog---");
 
         XMapWindow(dpy, w);
-        grabkeys(w);
         setborder(w, borderwidth, bordercolor);
         focus(w, NULL);
 
@@ -940,18 +953,20 @@ drawdialog(Window w, XWindowAttributes *wa)
 }
 
 void
-grabkeys(Window w)
+grabkeys()
 {
         DEBUG("---Start: grabkeys---");
+        unsigned int modifiers[] = {0, LockMask, Mod2Mask, LockMask|Mod2Mask};
         for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
-                XGrabKey(
-                        dpy,
-                        XKeysymToKeycode(dpy, keys[i].keysym),
-                        keys[i].modmask,
-                        w,
-                        0,
-                        GrabModeAsync,
-                        GrabModeAsync);
+                for (int j = 0; j < sizeof(modifiers)/sizeof(modifiers[0]); ++j)
+                        XGrabKey(
+                                dpy,
+                                XKeysymToKeycode(dpy, keys[i].keysym),
+                                keys[i].modmask | modifiers[j],
+                                root,
+                                True,
+                                GrabModeAsync,
+                                GrabModeAsync);
         DEBUG("---End: grabkeys---");
 }
 
@@ -1367,6 +1382,13 @@ focustag(Arg *arg)
 
 
 /*** Util functions ***/
+
+unsigned int
+cleanmask(unsigned int mask)
+{
+        // Thanks to dwm
+        return mask & (unsigned int) ~(Mod2Mask|LockMask) & (ShiftMask|ControlMask|Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask);
+}
 
 int
 gettagnum(Tag *t)
@@ -1829,6 +1851,8 @@ setup()
 
 
         arrange();
+
+        grabkeys();
         XSync(dpy, 0);
 }
 
@@ -1837,8 +1861,7 @@ run()
 {
         XEvent e;
         while(!XNextEvent(dpy, &e))
-                if(handler[e.type])
-                        handler[e.type](&e);
+                if(handler[e.type]) handler[e.type](&e);
 }
 
 
