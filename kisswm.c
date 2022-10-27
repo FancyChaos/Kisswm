@@ -448,9 +448,8 @@ drawbar(Monitor *m)
                 (XftChar8 *) m->bartags,
                 bartagslen,
                 &xglyph);
-        int glyphheight = xglyph.height;
-        int baroffset = (statusbar.height - xfont->height) / 2;
-        if (baroffset < 0) baroffset = 0;
+        int baroffset = statusbar.height - ((statusbar.height - xglyph.y) / 2);
+        if (baroffset < 0) baroffset = xglyph.y;
 
         // Draw statusbartags text
         XftDrawStringUtf8(
@@ -458,7 +457,7 @@ drawbar(Monitor *m)
                 &colors.xbarfg,
                 xfont,
                 m->x,
-                m->y + glyphheight + baroffset,
+                m->y + baroffset,
                 (XftChar8 *) m->bartags,
                 bartagslen);
 
@@ -481,7 +480,7 @@ drawbar(Monitor *m)
                 &colors.xbarfg,
                 xfont,
                 m->x + (m->width - xglyph.width),
-                m->y + glyphheight + baroffset,
+                m->y + baroffset,
                 (XftChar8 *) barstatus,
                 barstatuslen);
 
@@ -852,9 +851,9 @@ arrangemon(Monitor *m)
         // First client gets full or half monitor if multiple clients
         Client *fc = t->clients;
         fc->width = wc.width = ((t->clientnum == 1) ? m->width : masterarea) - borderoffset;
-        fc->height = wc.height = m->height - statusbar.height - borderoffset;
+        fc->height = wc.height = m->height - statusbar.height - borderwidth - borderoffset;
         fc->x = wc.x = m->x;
-        fc->y = wc.y = m->y + statusbar.height;
+        fc->y = wc.y = m->y + statusbar.height + borderwidth;
         XConfigureWindow(dpy, fc->win, CWY|CWX|CWWidth|CWHeight, &wc);
 
         if (!fc->next) {
@@ -863,7 +862,7 @@ arrangemon(Monitor *m)
         }
 
         // Draw rest of the clients to the right of the screen
-        int rightheight = (m->height - statusbar.height) / (t->clientnum - 1);
+        int rightheight = (m->height - statusbar.height - borderwidth) / (t->clientnum - 1);
         for (Client *c = fc->next; c; c = c->next) {
                 c->width = wc.width = m->width - masterarea - borderoffset;
                 c->height = wc.height = rightheight - borderoffset;
