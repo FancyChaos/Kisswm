@@ -154,7 +154,7 @@ void detach(Client*);
 void focusattach(Client*);
 void focusdetach(Client*);
 void focusclient(Client*);
-void focus(Window, Client*);
+void focus(Window, Client*, bool);
 void arrange(void);
 void arrangemon(Monitor*);
 void updatemasteroffset(Arg*);
@@ -170,6 +170,7 @@ void maprequest(XEvent*);
 void destroynotify(XEvent*);
 void clientmessage(XEvent*);
 void mappingnotify(XEvent*);
+void focusin(XEvent*);
 
 void updatebars(void);
 void updatestatustext(void);
@@ -183,7 +184,8 @@ void (*handler[LASTEvent])(XEvent*) = {
         [MapRequest] = maprequest,
         [MappingNotify] = mappingnotify,
         [DestroyNotify] = destroynotify,
-        [ClientMessage] = clientmessage
+        [ClientMessage] = clientmessage,
+        [FocusIn] = focusin
 };
 
 #include "kisswm.h"
@@ -212,6 +214,17 @@ char barstatus[256];
 
 
 /*** X11 Eventhandling ****/
+
+void
+focusin(XEvent *e)
+{
+        XFocusChangeEvent *ev = &e->xfocus;
+        Client *c = wintoclient(ev->window);
+        if (!c) return;
+
+        // Do not permit automatic focus change
+        if (c != selc) focus(0, selc, false);
+}
 
 void
 mappingnotify(XEvent *e)
@@ -263,6 +276,8 @@ maprequest(XEvent *e)
 
         XWindowAttributes wa;
         if (!XGetWindowAttributes(dpy, ev->window, &wa)) return;
+
+        XSelectInput(dpy, ev->window, FocusChangeMask);
 
         // Simply render a dialog window
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
@@ -608,7 +623,7 @@ closeclient(Window w)
 }
 
 void
-focus(Window w, Client *c)
+focus(Window w, Client *c, bool warp)
 {
         if (!w && !c) {
                 if (selc) w = selc->win;
@@ -629,6 +644,11 @@ focus(Window w, Client *c)
                 (unsigned char*) &w,
                 1);
 
+        if (!warp) {
+                XSync(dpy, 0);
+                return;
+        }
+
         if (w == root)
                 XWarpPointer(dpy, 0, w, 0, 0, 0, 0, selmon->x + selmon->width / 2, selmon->y + selmon->height / 2);
         else if (c && c->win == w)
@@ -642,7 +662,7 @@ focusclient(Client *c)
 {
         if (!c) {
                 selc = NULL;
-                focus(0, NULL);
+                focus(0, NULL, true);
                 return;
         }
 
@@ -670,7 +690,7 @@ focusclient(Client *c)
 
         setborders(c->tag);
 
-        focus(0, selc);
+        focus(0, selc, true);
 }
 
 void
@@ -835,7 +855,7 @@ drawdialog(Window w, XWindowAttributes *wa)
 {
         XMapWindow(dpy, w);
         setborder(w, borderwidth, bordercolor);
-        focus(w, NULL);
+        focus(w, NULL, true);
 }
 
 void
@@ -1081,7 +1101,7 @@ cycletag(Arg *arg)
 void
 focusmon(Monitor *m)
 {
-        if (!m || m->inactive) return;
+        if (!m || m->inactive || m == selmon) return;
 
         // Previous monitor
         Monitor *pm = selmon;
@@ -1480,7 +1500,7 @@ setup(void)
 
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
-        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask);
+        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask|FocusChangeMask);
         XSync(dpy, 0);
 
         // Set the error handler
