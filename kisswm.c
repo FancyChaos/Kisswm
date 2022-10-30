@@ -1,5 +1,5 @@
 #ifdef __linux__
-#define _POSIX_C_SOURCE=200809L
+#define _POSIX_C_SOURCE 200809L
 #include <bsd/string.h>
 #endif
 #include <stdio.h>
@@ -125,7 +125,7 @@ void setborders(Tag*);
 void mapclient(Client*);
 void drawdialog(Window, XWindowAttributes*);
 void unmapclient(Client*);
-void maptag(Tag*, int);
+void maptag(Tag*);
 void unmaptag(Tag*);
 void spawn(Arg*);
 void mvwintotag(Arg*);
@@ -139,13 +139,13 @@ void cycleclient(Arg*);
 void cyclemon(Arg*);
 void killclient(Arg*);
 void closeclient(Window);
-void setup();
+void setup(void);
 Atom getwinprop(Window, Atom);
 Client* wintoclient(Window);
 Bool sendevent(Window, Atom*);
 Tag* currenttag(Monitor*);
-void freemons();
-void initmons();
+void freemons(void);
+void initmons(void);
 void generatebartags(Monitor*);
 void _mvwintotag(Client*, Tag*);
 void togglefullscreen(Client*);
@@ -155,11 +155,11 @@ void focusattach(Client*);
 void focusdetach(Client*);
 void focusclient(Client*);
 void focus(Window, Client*);
-void arrange();
+void arrange(void);
 void arrangemon(Monitor*);
 void updatemasteroffset(Arg*);
-void run();
-void grabkeys();
+void run(void);
+void grabkeys(void);
 int wm_detected(Display*, XErrorEvent*);
 int onxerror(Display*, XErrorEvent*);
 void keypress(XEvent*);
@@ -167,14 +167,13 @@ void configurenotify(XEvent*);
 void propertynotify(XEvent*);
 void configurerequest(XEvent*);
 void maprequest(XEvent*);
-void unmapnotify(XEvent*);
 void destroynotify(XEvent*);
 void clientmessage(XEvent*);
 void mappingnotify(XEvent*);
 
-void updatebars();
-void updatestatustext();
-void drawbar();
+void updatebars(void);
+void updatestatustext(void);
+void drawbar(Monitor*);
 
 void (*handler[LASTEvent])(XEvent*) = {
         [KeyPress] = keypress,
@@ -183,7 +182,6 @@ void (*handler[LASTEvent])(XEvent*) = {
         [PropertyNotify] = propertynotify,
         [MapRequest] = maprequest,
         [MappingNotify] = mappingnotify,
-        [UnmapNotify] = unmapnotify,
         [DestroyNotify] = destroynotify,
         [ClientMessage] = clientmessage
 };
@@ -231,8 +229,7 @@ clientmessage(XEvent *e)
 {
         XClientMessageEvent *ev = &e->xclient;
         Client *c = wintoclient(ev->window);
-        if (!c)
-                return;
+        if (!c) return;
 
         if (ev->message_type == net_atoms[NET_ACTIVE] && c->tag != selc->tag) {
                 c->m->bartags[gettagnum(c->tag) * 2] = '!';
@@ -254,30 +251,18 @@ void
 destroynotify(XEvent *e)
 {
         XDestroyWindowEvent *ev = &e->xdestroywindow;
-        if (ev->window)
-                closeclient(ev->window);
+        if (ev->window) closeclient(ev->window);
         XSync(dpy, 0);
-}
-
-void
-unmapnotify(XEvent *e)
-{
-        XUnmapEvent *ev = &e->xunmap;
 }
 
 void
 maprequest(XEvent *e)
 {
-
         XMapRequestEvent *ev = &e->xmaprequest;
-
-        if (alreadymapped(ev->window))
-                return;
+        if (alreadymapped(ev->window)) return;
 
         XWindowAttributes wa;
-
-        if (!XGetWindowAttributes(dpy, ev->window, &wa))
-                return;
+        if (!XGetWindowAttributes(dpy, ev->window, &wa)) return;
 
         // Simply render a dialog window
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
@@ -308,14 +293,12 @@ maprequest(XEvent *e)
 
         // Focus new client
         focusclient(c);
-
 }
 
 void
 configurenotify(XEvent *e)
 {
         XConfigureEvent *ev = &e->xconfigure;
-
         if (ev->window != root) return;
 
         int monitornum;
@@ -346,10 +329,7 @@ void
 propertynotify(XEvent *e)
 {
         XPropertyEvent *ev = &e->xproperty;
-
-        if ((ev->window == root) && (ev->atom == XA_WM_NAME))
-                updatebars();
-
+        if ((ev->window == root) && (ev->atom == XA_WM_NAME)) updatebars();
 }
 
 void
@@ -397,21 +377,15 @@ onxerror(Display *dpy, XErrorEvent *ee)
 
 
 void
-updatebars()
+updatebars(void)
 {
-
         updatestatustext();
-
-        // Draw bar for each monitor
-        for (Monitor *m = mons; m; m = m->next)
-                drawbar(m);
-
+        for (Monitor *m = mons; m; m = m->next) drawbar(m);
 }
 
 void
 drawbar(Monitor *m)
 {
-
         // Clear bar section
         XClearArea(
                 dpy,
@@ -488,7 +462,7 @@ drawbar(Monitor *m)
 }
 
 void
-updatestatustext()
+updatestatustext(void)
 {
         // Reset barstatus
         barstatus[0] = '\0';
@@ -555,13 +529,11 @@ togglefullscreen(Client *cc)
                 if (t->fsclient) unmapclient(c);
                 else mapclient(c);
         }
-
 }
 
 void
 _mvwintotag(Client *c, Tag *t)
 {
-
         // Detach client from current tag
         detach(c);
 
@@ -572,9 +544,6 @@ _mvwintotag(Client *c, Tag *t)
         c->tag = t;
         attach(c);
         focusattach(c);
-
-        // Dont set selc because we do not follow the client. Only Moving
-
 }
 
 void
@@ -594,22 +563,19 @@ unmapclient(Client *c)
 void
 unmaptag(Tag *t)
 {
-        for (Client *c = t->clients; c; c = c->next)
-                unmapclient(c);
+        for (Client *c = t->clients; c; c = c->next) unmapclient(c);
 }
 
 void
-maptag(Tag *t, int check_fullscreen)
+maptag(Tag *t)
 {
-        // If check_fullscreen is 1, only map a fullscreen window if present
-        if (check_fullscreen && t->fsclient) {
+        if (t->fsclient) {
                 mapclient(t->fsclient);
                 return;
         }
 
-        // Map every window if not fullscreen client is present
-        for (Client *c = t->clients; c; c = c->next)
-                mapclient(c);
+        // Map every window if no fullscreen client is present
+        for (Client *c = t->clients; c; c = c->next) mapclient(c);
 }
 
 void
@@ -636,19 +602,14 @@ closeclient(Window w)
 
 
         free(c);
-
         arrangemon(m);
-
         focusclient(selc);
-
         drawbar(m);
-
 }
 
 void
 focus(Window w, Client *c)
 {
-
         if (!w && !c) {
                 if (selc) w = selc->win;
                 else w = root;
@@ -727,8 +688,6 @@ focusattach(Client *c)
         if (c->prevfocus) c->prevfocus->nextfocus = c;
 
         t->focusclients = c;
-
-
 }
 
 void
@@ -814,17 +773,14 @@ updatemonmasteroffset(Monitor *m, int offset)
 }
 
 void
-arrange()
+arrange(void)
 {
-        // Arrange current viewable terminals
-        for (Monitor *m = mons; m; m = m->next)
-                arrangemon(m);
+        for (Monitor *m = mons; m; m = m->next) arrangemon(m);
 }
 
 void
 arrangemon(Monitor *m)
 {
-
         // Only arrange current focused Tag of the monitor
         Tag *t = currenttag(m);
         if (!t->clientnum) return;
@@ -877,15 +833,13 @@ arrangemon(Monitor *m)
 void
 drawdialog(Window w, XWindowAttributes *wa)
 {
-
         XMapWindow(dpy, w);
         setborder(w, borderwidth, bordercolor);
         focus(w, NULL);
-
 }
 
 void
-grabkeys()
+grabkeys(void)
 {
         unsigned int modifiers[] = {0, LockMask, Mod2Mask, LockMask|Mod2Mask};
         for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
@@ -944,14 +898,12 @@ void
 fullscreen(Arg* arg)
 {
         if (!selc) return;
-
         togglefullscreen(selc);
 }
 
 void
 mvwintomon(Arg *arg)
 {
-
         if (!selc) return;
         if (!mons->next) return;
 
@@ -1217,7 +1169,7 @@ focustag(Arg *arg)
         // Unmap current clients
         unmaptag(tc);
         // Map new clients
-        maptag(tn, 1);
+        maptag(tn);
 
         // Focus the selected client on selected tag
         focusclient(tn->focusclients);
@@ -1262,7 +1214,6 @@ createcolor(const char *color, XftColor *dst)
                     color,
                     dst))
                 die("Could not load color: %s\n", color);
-
 }
 
 bool
@@ -1388,7 +1339,6 @@ Tag *
 currenttag(Monitor *m)
 {
         if (!m) return NULL;
-
         return &m->tags[m->tag];
 }
 
@@ -1401,7 +1351,7 @@ wm_detected(Display *dpy, XErrorEvent *ee)
 }
 
 void
-freemons()
+freemons(void)
 {
         // Free monitors, tags //
         if (!mons) return;
@@ -1513,7 +1463,7 @@ createmon(XineramaScreenInfo *info)
 }
 
 void
-initmons()
+initmons(void)
 {
         if (!XineramaIsActive(dpy)) die("Build with Xinerama\n");
 
@@ -1524,7 +1474,7 @@ initmons()
 }
 
 void
-setup()
+setup(void)
 {
         root = DefaultRootWindow(dpy);
 
@@ -1693,7 +1643,7 @@ run()
 
 
 int
-main()
+main(int argc, char *argv[])
 {
         if(!(dpy = XOpenDisplay(NULL)))
                 die("Can not open Display\n");

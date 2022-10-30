@@ -12,7 +12,6 @@ MANPREFIX = ${PREFIX}/man
 INCS = -I$(X11INC) -I$(FREETYPEINC)
 LIBS = -L$(X11LIB) -lX11 $(XINERAMALIBS) $(FREETYPELIBS)
 
-#CFLAGS = -std=c99 -Wall -pedantic -Wconversion -O $(INCS)
-CFLAGS = -std=c99 -Wall -pedantic -O3 $(INCS)
+CFLAGS = -std=c99 -Wall -pedantic -Wconversion -O3 $(INCS)
 
 CC = cc

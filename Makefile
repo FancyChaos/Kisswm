@@ -6,7 +6,7 @@ kisswm: kisswm.o util.o
 	$(CC) kisswm.o util.o -o kisswm $(LIBS)
 
 kisswm.o: kisswm.c kisswm.h
-	$(CC) -c kisswm.c $(CFLAGS) -Wconversion
+	$(CC) -c kisswm.c $(CFLAGS)
 
 util.o: util.c util.h
 	$(CC) -c util.c $(CFLAGS)
