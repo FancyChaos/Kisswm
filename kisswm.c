@@ -1455,17 +1455,13 @@ resizemons(XineramaScreenInfo *info, int mn)
                 updatemonmasteroffset(m, 0);
                 // Change monitor num indicator
                 snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
-                // Focus first mon
-                if (!n) {
-                        focusmon(m);
-                        focusclient(currenttag(m)->focusclients, true);
-                }
-
                 m->inactive = false;
                 m = m->next;
         }
-
         currmonitornum = mn;
+
+        focusmon(mons);
+        focusclient(currenttag(selmon)->focusclients, true);
 
         // Set dangling monitors to inactive (disconnected monitors)
         for (; m; m = m->next) m->inactive = true;
