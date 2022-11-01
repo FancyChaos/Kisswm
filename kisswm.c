@@ -112,6 +112,7 @@ struct Monitor {
         bool inactive;
 };
 
+void grabbutton(Client *c);
 unsigned int cleanmask(unsigned int);
 int gettagnum(Tag*);
 void updatemonmasteroffset(Monitor*, int);
@@ -153,7 +154,7 @@ void attach(Client*);
 void detach(Client*);
 void focusattach(Client*);
 void focusdetach(Client*);
-void focusclient(Client*);
+void focusclient(Client*, bool);
 void focus(Window, Client*, bool);
 void arrange(void);
 void arrangemon(Monitor*);
@@ -170,7 +171,7 @@ void maprequest(XEvent*);
 void destroynotify(XEvent*);
 void clientmessage(XEvent*);
 void mappingnotify(XEvent*);
-void focusin(XEvent*);
+void buttonpress(XEvent*);
 
 void updatebars(void);
 void updatestatustext(void);
@@ -185,7 +186,7 @@ void (*handler[LASTEvent])(XEvent*) = {
         [MappingNotify] = mappingnotify,
         [DestroyNotify] = destroynotify,
         [ClientMessage] = clientmessage,
-        [FocusIn] = focusin
+        [ButtonPress] = buttonpress
 };
 
 #include "kisswm.h"
@@ -216,14 +217,16 @@ char barstatus[256];
 /*** X11 Eventhandling ****/
 
 void
-focusin(XEvent *e)
+buttonpress(XEvent *e)
 {
-        XFocusChangeEvent *ev = &e->xfocus;
+        XButtonPressedEvent *ev = &e->xbutton;
+        if (selc && ev->window == selc->win) return;
+
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
-        // Do not permit automatic focus change
-        if (c != selc) focus(0, selc, false);
+        if (selmon != c->m) focusmon(c->m);
+        focusclient(c, false);
 }
 
 void
@@ -244,7 +247,7 @@ clientmessage(XEvent *e)
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
-        if (ev->message_type == net_atoms[NET_ACTIVE] && c->tag != selc->tag) {
+        if (ev->message_type == net_atoms[NET_ACTIVE] && selc && c->tag != selc->tag) {
                 c->m->bartags[gettagnum(c->tag) * 2] = '!';
                 c->tag->urgentclient = c;
                 setborders(c->tag);
@@ -277,8 +280,6 @@ maprequest(XEvent *e)
         XWindowAttributes wa;
         if (!XGetWindowAttributes(dpy, ev->window, &wa)) return;
 
-        XSelectInput(dpy, ev->window, FocusChangeMask);
-
         // Simply render a dialog window
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
         if (net_win_types[NET_UTIL] == wintype ||
@@ -307,7 +308,7 @@ maprequest(XEvent *e)
         mapclient(c);
 
         // Focus new client
-        focusclient(c);
+        focusclient(c, true);
 }
 
 void
@@ -520,7 +521,8 @@ togglefullscreen(Client *cc)
         // set fullscreen client
         t->fsclient = (t->fsclient) ? NULL : cc;
 
-        focusclient(cc);
+        focusmon(cc->m);
+        focusclient(cc, true);
         if (t->fsclient) {
                 XChangeProperty(
                         dpy,
@@ -615,10 +617,9 @@ closeclient(Window w)
         if (c->tag->clientnum == 0 && currenttag(c->m) != c->tag)
                 c->m->bartags[gettagnum(c->tag) * 2] = ' ';
 
-
         free(c);
         arrangemon(m);
-        focusclient(selc);
+        focusclient(selc, true);
         drawbar(m);
 }
 
@@ -658,16 +659,29 @@ focus(Window w, Client *c, bool warp)
 }
 
 void
-focusclient(Client *c)
+focusclient(Client *c, bool warp)
 {
+        // Previous selc
+        Client *pselc = selc;
+
+        // Try to focus client on currenttag of the currently focused monitor
         if (!c) {
-                selc = NULL;
-                focus(0, NULL, true);
+                c = currenttag(selmon)->focusclients;
+                if (c && c != selc) {
+                        focusclient(c, warp);
+                } else if (!c) {
+                        selc = NULL;
+                        grabbutton(pselc);
+                        focus(0, NULL, warp);
+                }
                 return;
         }
 
-        Tag *t = c->tag;
+        selc = c;
+        if (selc != pselc) grabbutton(pselc);
+        grabbutton(selc);
 
+        Tag *t = c->tag;
         if (c != t->focusclients) {
                 if (c->prevfocus)
                         c->prevfocus->nextfocus = c->nextfocus;
@@ -678,19 +692,15 @@ focusclient(Client *c)
                 if (c->prevfocus)
                         c->prevfocus->nextfocus = c;
         }
-
         c->nextfocus = NULL;
 
         t->focusclients = c;
-
-        selc = c;
-        selmon = c->m;
 
         if (c == t->urgentclient) t->urgentclient = NULL;
 
         setborders(c->tag);
 
-        focus(0, selc, true);
+        focus(0, selc, warp);
 }
 
 void
@@ -960,7 +970,7 @@ mvwintomon(Arg *arg)
         arrangemon(tm);
         arrangemon(selmon);
 
-        focusclient(ct->focusclients);
+        focusclient(ct->focusclients, true);
 }
 
 void
@@ -992,7 +1002,7 @@ mvwintotag(Arg *arg)
         arrangemon(selmon);
 
         // Focus previous client
-        focusclient(pc);
+        focusclient(pc, true);
 }
 
 void
@@ -1108,18 +1118,15 @@ focusmon(Monitor *m)
 
         selmon = m;
 
+        // Set borders to inactive on previous monitor
+        setborders(currenttag(pm));
+
         XDeleteProperty(
                 dpy,
                 root,
                 net_atoms[NET_ACTIVE]);
         XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
-
-        // Set borders to inactive on previous monitor
-        if (pm != selmon) setborders(currenttag(pm));
-
-        // Focus window on current tag
-        Tag *t = currenttag(selmon);
-        focusclient(t->focusclients);
+        XSync(dpy, 0);
 }
 
 void
@@ -1128,10 +1135,15 @@ cyclemon(Arg *arg)
         if (arg->i != 1 && arg->i != -1) return;
 
         // Focus monitor if available
+        Monitor *m = NULL;
         if (arg->i == 1)
-                focusmon(selmon->next ? selmon->next : mons);
-        else if (arg->i == -1)
-                focusmon(selmon->prev ? selmon->prev : lastmon);
+                m = selmon->next ? selmon->next : mons;
+        else
+                m = selmon->prev ? selmon->prev : lastmon;
+
+        focusmon(m);
+        focusclient(currenttag(m)->focusclients, true);
+        XSync(dpy, 0);
 }
 
 void
@@ -1160,7 +1172,7 @@ cycleclient(Arg *arg)
 
         }
 
-        focusclient(tofocus);
+        focusclient(tofocus, true);
 }
 
 void
@@ -1192,7 +1204,7 @@ focustag(Arg *arg)
         maptag(tn);
 
         // Focus the selected client on selected tag
-        focusclient(tn->focusclients);
+        focusclient(tn->focusclients, true);
 
         // Create new tag identifier in the statusbar
         selmon->bartags[selmon->tag*2] = '>';
@@ -1202,6 +1214,17 @@ focustag(Arg *arg)
 
 
 /*** Util functions ***/
+
+void
+grabbutton(Client *c)
+{
+    if (!c) return;
+
+    XUngrabButton(dpy, Button1, AnyModifier, c->win);
+    if (c != selc)
+            XGrabButton(dpy, Button1, AnyModifier, c->win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
+
+}
 
 unsigned int
 cleanmask(unsigned int mask)
@@ -1433,7 +1456,10 @@ resizemons(XineramaScreenInfo *info, int mn)
                 // Change monitor num indicator
                 snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
                 // Focus first mon
-                if (!n) focusmon(m);
+                if (!n) {
+                        focusmon(m);
+                        focusclient(currenttag(m)->focusclients, true);
+                }
 
                 m->inactive = false;
                 m = m->next;
@@ -1500,7 +1526,10 @@ setup(void)
 
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
-        XSelectInput(dpy, root, SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask|FocusChangeMask);
+        XSelectInput(
+                dpy,
+                root,
+                SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask);
         XSync(dpy, 0);
 
         // Set the error handler
@@ -1648,8 +1677,9 @@ setup(void)
 
 
         arrange();
-
         grabkeys();
+        focus(root, NULL, true);
+
         XSync(dpy, 0);
 }
 
