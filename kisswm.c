@@ -79,6 +79,7 @@ struct Client {
         Tag *tag;
         Client *next, *prev;
         Client *nextfocus, *prevfocus;
+        bool floating;
         int x;
         int y;
         int width;
@@ -87,7 +88,12 @@ struct Client {
 };
 
 struct Tag {
+        // Overall clients
         int clientnum;
+        // Tiling clients
+        int tclientnum;
+        // floating clients
+        int fclientnum;
         int masteroffset;
         Monitor *mon;
         Client *clients;
@@ -124,7 +130,6 @@ bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
 void setborders(Tag*);
 void mapclient(Client*);
-void drawdialog(Window, XWindowAttributes*);
 void unmapclient(Client*);
 void maptag(Tag*);
 void unmaptag(Tag*);
@@ -280,14 +285,6 @@ maprequest(XEvent *e)
         XWindowAttributes wa;
         if (!XGetWindowAttributes(dpy, ev->window, &wa)) return;
 
-        // Simply render a dialog window
-        Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
-        if (net_win_types[NET_UTIL] == wintype ||
-            net_win_types[NET_DIALOG] == wintype) {
-                drawdialog(ev->window, &wa);
-                return;
-        }
-
         // We assume the maprequest is on the current (selected) monitor
         // Get current tag
         Tag *ct = currenttag(selmon);
@@ -297,6 +294,14 @@ maprequest(XEvent *e)
         c->win = ev->window;
         c->m = selmon;
         c->tag = ct;
+
+        // Set floating if dialog
+        c->floating = false;
+        Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
+        if (net_win_types[NET_UTIL] == wintype ||
+            net_win_types[NET_DIALOG] == wintype) {
+                c->floating = true;
+        }
 
         attach(c);
         focusattach(c);
@@ -614,7 +619,7 @@ closeclient(Window w)
         focusdetach(c);
 
         // Clear statusbar if last client and not focused
-        if (c->tag->clientnum == 0 && currenttag(c->m) != c->tag)
+        if (!c->tag->clientnum && currenttag(c->m) != c->tag)
                 c->m->bartags[gettagnum(c->tag) * 2] = ' ';
 
         free(c);
@@ -644,6 +649,7 @@ focus(Window w, Client *c, bool warp)
                 PropModeReplace,
                 (unsigned char*) &w,
                 1);
+        XRaiseWindow(dpy, w);
 
         if (!warp) {
                 XSync(dpy, 0);
@@ -744,6 +750,8 @@ detach(Client *c)
         if (!t) return;
 
         t->clientnum -= 1;
+        if (c->floating) t->fclientnum -= 1;
+        else t->tclientnum -= 1;
 
         // If this was the last open client on the tag
         if (!t->clientnum) {
@@ -767,6 +775,8 @@ attach(Client *c)
         if (!t) return;
 
         t->clientnum += 1;
+        if (c->floating) t->fclientnum += 1;
+        else t->tclientnum += 1;
 
         c->next = NULL;
         c->prev = NULL;
@@ -788,9 +798,9 @@ updatemonmasteroffset(Monitor *m, int offset)
 {
         if (!m) return;
 
-        // Only allow masteroffset adjustment if at least 2 clients are present
+        // Only allow masteroffset adjustment if at least 2 tiling clients are present
         Tag *t = currenttag(m);
-        if (t->clientnum < 2) return;
+        if (t->tclientnum < 2) return;
 
         int halfwidth = m->width / 2;
         int updatedmasteroffset = offset ? (t->masteroffset + offset) : 0;
@@ -813,9 +823,9 @@ arrangemon(Monitor *m)
 {
         // Only arrange current focused Tag of the monitor
         Tag *t = currenttag(m);
-        if (!t->clientnum) return;
+        if (!t->tclientnum) return;
 
-        if (t->clientnum == 1) t->masteroffset = 0;
+        if (t->tclientnum == 1) t->masteroffset = 0;
 
         int borderoffset = borderwidth * 2;
         XWindowChanges wc;
@@ -836,36 +846,36 @@ arrangemon(Monitor *m)
 
         // First client gets full or half monitor if multiple clients
         Client *fc = t->clients;
-        fc->width = wc.width = ((t->clientnum == 1) ? m->width : masterarea) - borderoffset;
+        // Ignore floating clients
+        for (; fc && fc->floating; fc = fc->next);
+        if (fc && fc->floating) return;
+
+        fc->width = wc.width = ((t->tclientnum == 1) ? m->width : masterarea) - borderoffset;
         fc->height = wc.height = m->height - statusbar.height - borderwidth - borderoffset;
         fc->x = wc.x = m->x;
         fc->y = wc.y = m->y + statusbar.height + borderwidth;
         XConfigureWindow(dpy, fc->win, CWY|CWX|CWWidth|CWHeight, &wc);
 
-        if (!fc->next) {
+        if (!fc->next || t->tclientnum == 1) {
                 XSync(dpy, 0);
                 return;
         }
 
         // Draw rest of the clients to the right of the screen
-        int rightheight = (m->height - statusbar.height - borderwidth) / (t->clientnum - 1);
+        int rightheight = (m->height - statusbar.height - borderwidth) / (t->tclientnum - 1);
+        int prevheight = fc->y;
         for (Client *c = fc->next; c; c = c->next) {
+                if (c->floating) continue;
                 c->width = wc.width = m->width - masterarea - borderoffset;
                 c->height = wc.height = rightheight - borderoffset;
                 c->x = wc.x = masterarea + m->x;
-                c->y = wc.y = c->prev->y + (c->prev == fc ? 0 : rightheight);
+                c->y = wc.y = prevheight;
                 XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
+
+                prevheight += rightheight;
         }
 
         XSync(dpy, 0);
-}
-
-void
-drawdialog(Window w, XWindowAttributes *wa)
-{
-        XMapWindow(dpy, w);
-        setborder(w, borderwidth, bordercolor);
-        focus(w, NULL, true);
 }
 
 void
@@ -934,7 +944,7 @@ fullscreen(Arg* arg)
 void
 mvwintomon(Arg *arg)
 {
-        if (!selc) return;
+        if (!selc || selc->floating) return;
         if (!mons->next) return;
 
         // Target monitor to move window to
