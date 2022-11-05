@@ -919,8 +919,6 @@ updatemasteroffset(Arg *arg)
 void
 killclient(Arg *arg)
 {
-        // TODO: Either get focused window (netatom) if selc is not set
-        // or create special type and keep track of dialog windows
         if (!selc) return;
 
         XGrabServer(dpy);

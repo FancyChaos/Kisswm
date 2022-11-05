@@ -1,9 +1,10 @@
 # Kisswm
 
-**Kisswm** is a dead simple and strictly tiling window manager inspired a lot
+**Kisswm** is a dead simple tiling window manager inspired a lot
 by [DWM](https://dwm.suckless.org/).
 
-It features basic ICCM/EWMH compliance and common navigation functionalities.
+It features basic ICCM/EWMH compliance, common navigation functionalities
+and basic floating windows support.
 
 ## Configuration
 
