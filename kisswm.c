@@ -27,9 +27,9 @@
 
 enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
 enum {
-    NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE,
-    NET_TYPE, NET_ACTIVE, NET_CLOSE, NET_FULLSCREEN,
-    NET_END
+        NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE,
+        NET_TYPE, NET_ACTIVE, NET_CLOSE, NET_FULLSCREEN,
+        NET_END
 };
 
 enum {
@@ -37,6 +37,11 @@ enum {
         NET_UTIL, NET_SPLAH, NET_DIALOG, NET_NORMAL,
         NET_TYPES_END
 };
+
+typedef enum {
+        CL_NORMAL = 1 << 0,
+        CL_DIALOG = 1 << 1
+} client_flags;
 
 typedef union {
         int i;
@@ -79,6 +84,7 @@ struct Client {
         Tag *tag;
         Client *next, *prev;
         Client *nextfocus, *prevfocus;
+        client_flags cf;
         bool floating;
         int x;
         int y;
@@ -92,7 +98,7 @@ struct Tag {
         int clientnum;
         // Tiling clients
         int tclientnum;
-        // floating clients
+        // Floating clients
         int fclientnum;
         int masteroffset;
         Monitor *mon;
@@ -294,12 +300,14 @@ maprequest(XEvent *e)
         c->win = ev->window;
         c->m = selmon;
         c->tag = ct;
+        c->cf = 0;
 
         // Set floating if dialog
         c->floating = false;
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
         if (net_win_types[NET_UTIL] == wintype ||
             net_win_types[NET_DIALOG] == wintype) {
+                c->cf |= CL_DIALOG;
                 c->floating = true;
         }
 
@@ -585,6 +593,10 @@ unmapclient(Client *c)
 void
 unmaptag(Tag *t)
 {
+        if (t->fsclient) {
+                unmapclient(t->fsclient);
+                return;
+        }
         for (Client *c = t->clients; c; c = c->next) unmapclient(c);
 }
 
@@ -606,8 +618,8 @@ closeclient(Window w)
         Client *c = (selc && selc->win == w) ? selc : NULL;
         if (!c && !(c = wintoclient(w))) return;
 
-        // Reset fsclient
-        if (c->tag->fsclient == c) togglefullscreen(c);
+        // Reset fsclient on current tag when a window closes
+        if (c->tag->fsclient && !(c->cf & CL_DIALOG)) togglefullscreen(c->tag->fsclient);
 
         Monitor *m = c->m;
 
@@ -623,8 +635,9 @@ closeclient(Window w)
                 c->m->bartags[gettagnum(c->tag) * 2] = ' ';
 
         free(c);
-        arrangemon(m);
+        if (selc) focusmon(selc->m);
         focusclient(selc, true);
+        arrangemon(m);
         drawbar(m);
 }
 
@@ -949,8 +962,8 @@ mvwintomon(Arg *arg)
 
         // Target monitor to move window to
         Monitor *tm;
-        if (arg->i == 1 && selmon->next) tm = selmon->next;
-        else if (arg->i == -1 && selmon->prev) tm = selmon->prev;
+        if (arg->i == 1) tm = selmon->next ? selmon->next : mons;
+        else if (arg->i == -1) tm = selmon->prev ? selmon->prev : lastmon;
         else return;
 
         // Do not do anything if in inactive state
@@ -1131,11 +1144,6 @@ focusmon(Monitor *m)
         // Set borders to inactive on previous monitor
         setborders(currenttag(pm));
 
-        XDeleteProperty(
-                dpy,
-                root,
-                net_atoms[NET_ACTIVE]);
-        XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
         XSync(dpy, 0);
 }
 
@@ -1205,13 +1213,13 @@ focustag(Arg *arg)
         // Get new tag
         Tag *tn = currenttag(selmon);
 
-        // Arrange the new clients on the newly selected tag
-        arrangemon(selmon);
-
         // Unmap current clients
         unmaptag(tc);
         // Map new clients
         maptag(tn);
+
+        // Arrange the new clients on the newly selected tag
+        arrangemon(selmon);
 
         // Focus the selected client on selected tag
         focusclient(tn->focusclients, true);
@@ -1295,6 +1303,7 @@ setborders(Tag *t)
 
         // Set borders for selected tag
         for (Client *c = t->clients; c; c = c->next) {
+                if (c->cf & CL_DIALOG) continue;
                 if (c == t->focusclients && selmon == t->mon)
                         setborder(c->win, borderwidth, bordercolor);
                 else if (c == t->urgentclient)
