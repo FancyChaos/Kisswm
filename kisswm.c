@@ -121,7 +121,6 @@ struct Monitor {
         int y;
         int height;
         int width;
-        bool inactive;
 };
 
 void grabbutton(Client *c);
@@ -130,6 +129,7 @@ int gettagnum(Tag*);
 void updatemonmasteroffset(Monitor*, int);
 void focusmon(Monitor*);
 Monitor* createmon(XineramaScreenInfo*);
+void destroymon(Monitor*, Monitor*);
 void resizemons(XineramaScreenInfo*, int);
 void createcolor(const char*, XftColor*);
 bool alreadymapped(Window);
@@ -160,6 +160,7 @@ void freemons(void);
 void initmons(void);
 void generatebartags(Monitor*);
 void _mvwintotag(Client*, Tag*);
+void _mvwintomon(Client*, Monitor*, Tag*);
 void togglefullscreen(Client*);
 void attach(Client*);
 void detach(Client*);
@@ -334,6 +335,8 @@ configurenotify(XEvent *e)
         XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
         resizemons(info, monitornum);
 
+        focusmon(mons);
+
         // Calculate combined monitor width
         sw = 0;
         for (Monitor *m = mons; m; m = m->next) sw += m->width;
@@ -349,6 +352,8 @@ configurenotify(XEvent *e)
                 .x = 0};
         XConfigureWindow(dpy, statusbar.win, CWX|CWY|CWWidth|CWHeight, &wc);
         updatebars();
+
+        focusclient(currenttag(selmon)->focusclients, true);
 
         XFree(info);
         XSync(dpy, 0);
@@ -559,6 +564,29 @@ togglefullscreen(Client *cc)
                 if (t->fsclient) unmapclient(c);
                 else mapclient(c);
         }
+}
+
+void
+_mvwintomon(Client *c, Monitor *m, Tag *t)
+{
+        if (!c || !m) return;
+
+        // Current tag of client to move
+        Tag *ct = c->tag;
+        // Tag of target monitor to move window to
+        Tag *tt = t ? t : currenttag(m);
+
+        // Do not allow moving when in fullscreen
+        if (ct->fsclient || tt->fsclient) return;
+
+        detach(c);
+        focusdetach(c);
+
+        c->m = m;
+        c->tag = tt;
+
+        attach(c);
+        focusattach(c);
 }
 
 void
@@ -964,31 +992,15 @@ mvwintomon(Arg *arg)
         else if (arg->i == -1) tm = selmon->prev ? selmon->prev : lastmon;
         else return;
 
-        // Do not do anything if in inactive state
-        if (tm->inactive) return;
+        // Current tag
+        Tag *ct = selc->tag;
 
-        // Target client to move to target monitor
-        Client *tc = selc;
-        // Current tag of client to move
-        Tag *ct = tc->tag;
-        // Current tag of the target monitor
-        Tag *tt = currenttag(tm);
-
-        // Do not allow moving when in fullscreen
-        if (ct->fsclient || tt->fsclient) return;
-
-        detach(tc);
-        focusdetach(tc);
-
-        tc->m = tm;
-        tc->tag = tt;
-
-        attach(tc);
-        focusattach(tc);
+        // Move client (win) to target monitor
+        _mvwintomon(selc, tm, NULL);
 
         // Update bartags of target monitor
-        tc->m->bartags[tc->m->tag * 2] = '*';
-        drawbar(tc->m);
+        tm->bartags[tm->tag * 2] = '*';
+        drawbar(tm);
 
         setborders(currenttag(tm));
 
@@ -1140,7 +1152,7 @@ cycletag(Arg *arg)
 void
 focusmon(Monitor *m)
 {
-        if (!m || m->inactive || m == selmon) return;
+        if (!m || m == selmon) return;
 
         // Previous monitor
         Monitor *pm = selmon;
@@ -1477,7 +1489,6 @@ resizemons(XineramaScreenInfo *info, int mn)
                 m->y = info[n].y_org;
                 m->width = info[n].width;
                 m->height = info[n].height;
-                m->inactive = false;
 
                 updatemonmasteroffset(m, 0);
 
@@ -1489,11 +1500,31 @@ resizemons(XineramaScreenInfo *info, int mn)
         }
         currmonitornum = mn;
 
-        focusmon(mons);
-        focusclient(currenttag(selmon)->focusclients, true);
+        // These monitors are not active anymore
+        // Move any window to the first mon
+        for (Monitor *nm = m; nm; m = nm) {
+                nm = m->next;
+                destroymon(m, mons);
+        }
+}
 
-        // Set dangling monitors to inactive (disconnected monitors)
-        for (; m; m = m->next) m->inactive = true;
+void
+destroymon(Monitor *m, Monitor *tm)
+{
+        // Destroy monitor and move clients
+        // to different monitor if wished
+        if (tm) {
+            for (int i = 0; i < tags_num; ++i) {
+                for (Client *c = m->tags[i].clients; c; c = c->next) {
+                        _mvwintomon(c, tm, &(tm->tags[i]));
+                        tm->bartags[i * 2] = '*';
+                }
+            }
+        }
+
+        free(m->tags);
+        free(m->bartags);
+        free(m);
 }
 
 Monitor*
@@ -1509,7 +1540,6 @@ createmon(XineramaScreenInfo *info)
         m->tag = 0;
         m->prev = NULL;
         m->next = NULL;
-        m->inactive = false;
 
         // Init the tags
         unsigned long tags_bytes = (tags_num * sizeof(Tag));
