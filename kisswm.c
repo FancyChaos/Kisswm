@@ -986,6 +986,10 @@ mvwintomon(Arg *arg)
         attach(tc);
         focusattach(tc);
 
+        // Update bartags of target monitor
+        tc->m->bartags[tc->m->tag * 2] = '*';
+        drawbar(tc->m);
+
         setborders(currenttag(tm));
 
         arrangemon(tm);
@@ -1018,6 +1022,10 @@ mvwintotag(Arg *arg)
 
         //Unmap moved client
         unmapclient(c);
+
+        // Update bartags
+        selmon->bartags[(arg->ui - 1) * 2] = '*';
+        drawbar(selmon);
 
         // Arrange the monitor
         arrangemon(selmon);
@@ -1469,10 +1477,14 @@ resizemons(XineramaScreenInfo *info, int mn)
                 m->y = info[n].y_org;
                 m->width = info[n].width;
                 m->height = info[n].height;
+                m->inactive = false;
+
                 updatemonmasteroffset(m, 0);
+
                 // Change monitor num indicator
                 snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
-                m->inactive = false;
+
+                lastmon = m;
                 m = m->next;
         }
         currmonitornum = mn;
