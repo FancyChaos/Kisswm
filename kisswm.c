@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <bsd/string.h>
 #endif
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -221,6 +222,7 @@ Colors colors;
 int screen;
 int sw;
 int currmonitornum;
+long long monupdatetime = 0;
 
 unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
 
@@ -332,6 +334,11 @@ configurenotify(XEvent *e)
         XConfigureEvent *ev = &e->xconfigure;
         if (ev->window != root) return;
 
+        struct timespec time;
+        if (clock_gettime(CLOCK_BOOTTIME, &time) == 0) {
+                if (time.tv_sec == monupdatetime) return;
+        }
+        monupdatetime = time.tv_sec;
 
         // Update monitor setup
         updatemons();
