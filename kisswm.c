@@ -15,7 +15,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <X11/Xft/Xft.h>
-#include <X11/extensions/Xinerama.h>
+#include <X11/extensions/Xrandr.h>
 
 #include "util.h"
 
@@ -110,12 +110,13 @@ struct Tag {
 };
 
 struct Monitor {
+        char *aname;
         Monitor *next;
         Monitor *prev;
         unsigned long bartagssize;
         char *bartags;
-        unsigned int tag;
         Tag *tags;
+        unsigned int tag;
         int snum;
         int x;
         int y;
@@ -128,9 +129,10 @@ unsigned int cleanmask(unsigned int);
 int gettagnum(Tag*);
 void updatemonmasteroffset(Monitor*, int);
 void focusmon(Monitor*);
-Monitor* createmon(XineramaScreenInfo*);
+Monitor* createmon(XRRMonitorInfo*);
 void destroymon(Monitor*, Monitor*);
-void resizemons(XineramaScreenInfo*, int);
+void updatemons(void);
+void populatemon(Monitor *m, XRRMonitorInfo*);
 void createcolor(const char*, XftColor*);
 bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
@@ -156,7 +158,6 @@ Atom getwinprop(Window, Atom);
 Client* wintoclient(Window);
 Bool sendevent(Window, Atom*);
 Tag* currenttag(Monitor*);
-void freemons(void);
 void initmons(void);
 void generatebartags(Monitor*);
 void _mvwintotag(Client*, Tag*);
@@ -331,11 +332,9 @@ configurenotify(XEvent *e)
         XConfigureEvent *ev = &e->xconfigure;
         if (ev->window != root) return;
 
-        int monitornum;
-        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &monitornum);
-        resizemons(info, monitornum);
 
-        focusmon(mons);
+        // Update monitor setup
+        updatemons();
 
         // Calculate combined monitor width
         sw = 0;
@@ -353,9 +352,10 @@ configurenotify(XEvent *e)
         XConfigureWindow(dpy, statusbar.win, CWX|CWY|CWWidth|CWHeight, &wc);
         updatebars();
 
-        focusclient(currenttag(selmon)->focusclients, true);
+        Tag *t = currenttag(selmon);
+        Client *tofocus = t->focusclients ? t->focusclients : t->clients;
+        focusclient(tofocus, true);
 
-        XFree(info);
         XSync(dpy, 0);
 }
 
@@ -509,7 +509,7 @@ updatestatustext(void)
                     &pwmname,
                     net_atoms[NET_WM_NAME])
                 ) {
-                        strcpy(barstatus, "Kisswm V1.0.0");
+                        strlcpy(barstatus, "Kisswm\0", sizeof(barstatus));
                         return;
                 }
         }
@@ -1152,7 +1152,7 @@ cycletag(Arg *arg)
 void
 focusmon(Monitor *m)
 {
-        if (!m || m == selmon) return;
+        if (!m) return;
 
         // Previous monitor
         Monitor *pm = selmon;
@@ -1431,25 +1431,6 @@ wm_detected(Display *dpy, XErrorEvent *ee)
 }
 
 void
-freemons(void)
-{
-        // Free monitors, tags //
-        if (!mons) return;
-
-        Monitor *tmp = mons;
-        for (Monitor *m = mons; m; m = tmp) {
-                free(m->tags);
-                free(m->bartags);
-                m->bartagssize = 0;
-
-                tmp = m->next;
-                free(m);
-        }
-
-        mons = selmon = NULL;
-}
-
-void
 generatebartags(Monitor *m)
 {
         // Create the bartags string which will be displayed in the statusbar
@@ -1476,28 +1457,49 @@ generatebartags(Monitor *m)
 }
 
 void
-resizemons(XineramaScreenInfo *info, int mn)
+populatemon(Monitor *m, XRRMonitorInfo *info)
 {
+        if (!m || !info) return;
+
+        if (m->aname) XFree(m->aname);
+        m->aname = XGetAtomName(dpy, info->name);
+        m->snum = -1;
+        m->x = info->x;
+        m->y = info->y;
+        m->width = info->width;
+        m->height = info->height;
+}
+
+void
+updatemons(void)
+{
+
+        int mn;
+        XRRMonitorInfo *info = XRRGetMonitors(dpy, root, True, &mn);
+        if (!info) die("Could not get monitors with Xrandr");
+
+        // We assume we ALWAYS have one monitor
         Monitor *m = mons;
-
-        int n = 0;
-        for (; n < mn; ++n) {
-                if (!m) m = createmon(info + n);
-
-                m->snum = info[n].screen_number;
-                m->x = info[n].x_org;
-                m->y = info[n].y_org;
-                m->width = info[n].width;
-                m->height = info[n].height;
-
-                updatemonmasteroffset(m, 0);
-
-                // Change monitor num indicator
+        selmon = m;
+        lastmon = m;
+        for (int n = 0; n < mn; ++n) {
+                if (!m) {
+                        m = createmon(info + n);
+                        lastmon->next = m;
+                        m->prev = lastmon;
+                } else {
+                        populatemon(m, &(info[n]));
+                        updatemonmasteroffset(m, 0);
+                }
+                // Change bartags accordingly
+                m->snum = n;
                 snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
+                m->bartags[m->tag * 2] = '>';
 
                 lastmon = m;
                 m = m->next;
         }
+        lastmon->next = NULL;
         currmonitornum = mn;
 
         // These monitors are not active anymore
@@ -1506,6 +1508,14 @@ resizemons(XineramaScreenInfo *info, int mn)
                 nm = m->next;
                 destroymon(m, mons);
         }
+
+        // Only map client of active tag within the first monitor (selmon/mons)
+        for (int i = 0; i < tags_num; ++i) unmaptag(&(mons->tags[i]));
+        maptag(currenttag(mons));
+        focusmon(mons);
+
+        XRRFreeMonitors(info);
+        XSync(dpy, 0);
 }
 
 void
@@ -1513,7 +1523,7 @@ destroymon(Monitor *m, Monitor *tm)
 {
         // Destroy monitor and move clients
         // to different monitor if wished
-        if (tm) {
+        if (tm && tm != m) {
             for (int i = 0; i < tags_num; ++i) {
                 for (Client *c = m->tags[i].clients; c; c = c->next) {
                         _mvwintomon(c, tm, &(tm->tags[i]));
@@ -1522,21 +1532,19 @@ destroymon(Monitor *m, Monitor *tm)
             }
         }
 
+        m->prev = m->next = NULL;
+        XFree(m->aname);
         free(m->tags);
         free(m->bartags);
         free(m);
 }
 
 Monitor*
-createmon(XineramaScreenInfo *info)
+createmon(XRRMonitorInfo *info)
 {
         Monitor *m = (Monitor*)ecalloc(sizeof(Monitor), 1);
 
-        m->snum = info->screen_number;
-        m->x = info->x_org;
-        m->y = info->y_org;
-        m->width = info->width;
-        m->height = info->height;
+        populatemon(m, info);
         m->tag = 0;
         m->prev = NULL;
         m->next = NULL;
@@ -1545,17 +1553,6 @@ createmon(XineramaScreenInfo *info)
         unsigned long tags_bytes = (tags_num * sizeof(Tag));
         m->tags = (Tag*)ecalloc(tags_bytes, 1);
         for (int i = 0; i < tags_num; ++i) m->tags[i].mon = m;
-
-        // Automatically append monitors to our list of monitors
-        if (!mons) {
-                mons = m;
-                selmon = m;
-                lastmon = m;
-        } else {
-                lastmon->next = m;
-                m->prev = lastmon;
-                lastmon = m;
-        }
 
         // Generate the bartags string which is displayed inside the statusbar
         generatebartags(m);
@@ -1566,12 +1563,32 @@ createmon(XineramaScreenInfo *info)
 void
 initmons(void)
 {
-        if (!XineramaIsActive(dpy)) die("Build with Xinerama\n");
+        mons = NULL;
+        lastmon = NULL;
+        selmon = NULL;
 
-        XineramaScreenInfo *info = XineramaQueryScreens(dpy, &currmonitornum);
-        for (int n = 0; n < currmonitornum; ++n) createmon(info + n);
+        XRRMonitorInfo *info = XRRGetMonitors(dpy, root, True, &currmonitornum);
+        if (!info) die("Could not get monitors with Xrandr");
 
-        XFree(info);
+        for (int n = 0; n < currmonitornum; ++n) {
+                Monitor *m = createmon(info + n);
+                m->snum = n;
+
+                // Update monitor number in statusbar
+                snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
+
+                if (!mons) {
+                        mons = m;
+                        selmon = m;
+                        lastmon = m;
+                } else {
+                        lastmon->next = m;
+                        m->prev = lastmon;
+                        lastmon = m;
+                }
+        }
+
+        XRRFreeMonitors(info);
 }
 
 void
@@ -1739,7 +1756,7 @@ setup(void)
 }
 
 void
-run()
+run(void)
 {
         XEvent e;
         while(!XNextEvent(dpy, &e))
