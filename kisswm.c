@@ -545,6 +545,8 @@ togglefullscreen(Client *cc)
         t->fsclient = (t->fsclient) ? NULL : cc;
 
         focusmon(cc->m);
+        arrangemon(cc->m);
+
         focusclient(cc, true);
         if (t->fsclient) {
                 XChangeProperty(
@@ -557,10 +559,8 @@ togglefullscreen(Client *cc)
                         (unsigned char*) &net_atoms[NET_FULLSCREEN],
                         1);
         }
-
         drawbar(cc->m);
         for (Monitor *m = mons; m; m = m->next) setborders(currenttag(m));
-        arrangemon(cc->m);
 
         // Unmap or map client depending if fullscreen
         for (Client *c = t->clients; c; c = c->next) {
@@ -669,8 +669,8 @@ closeclient(Window w)
 
         free(c);
         if (selc) focusmon(selc->m);
-        focusclient(selc, true);
         arrangemon(m);
+        focusclient(selc, true);
         drawbar(m);
 }
 
