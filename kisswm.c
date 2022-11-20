@@ -26,6 +26,8 @@
         #define DEBUG(...) do {} while (0)
 #endif
 
+#define selc currenttag(selmon)->focusclients
+
 enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
 enum {
         NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE,
@@ -127,11 +129,9 @@ struct Monitor {
         int width;
 };
 
-void grabbutton(Client *c);
 unsigned int cleanmask(unsigned int);
 int gettagnum(Tag*);
 void updatetagmasteroffset(Monitor*, int);
-void focusmon(Monitor*);
 Monitor* createmon(XRRMonitorInfo*);
 void destroymon(Monitor*, Monitor*);
 void updatemons(void);
@@ -139,7 +139,7 @@ void populatemon(Monitor *m, XRRMonitorInfo*);
 void createcolor(const char*, XftColor*);
 bool alreadymapped(Window);
 void setborder(Window, int, unsigned long);
-void setborders(Tag*);
+void setborders(Tag*, bool active);
 void remaptag(Tag*);
 void mapclient(Client*);
 void unmapclient(Client*);
@@ -215,7 +215,6 @@ Atom net_win_types[NET_TYPES_END];
 Display *dpy;
 Window root;
 Monitor *mons, *selmon, *lastmon;
-Client *selc;
 Statusbar statusbar;
 
 XftFont *xfont;
@@ -242,7 +241,6 @@ buttonpress(XEvent *e)
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
-        if (selmon != c->m) focusmon(c->m);
         focusclient(c, false);
 }
 
@@ -264,10 +262,10 @@ clientmessage(XEvent *e)
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
-        if (ev->message_type == net_atoms[NET_ACTIVE] && selc && c->tag != selc->tag) {
+        if (ev->message_type == net_atoms[NET_ACTIVE] && c->tag != currenttag(selmon)) {
                 c->m->bartags[gettagnum(c->tag) * 2] = '!';
                 c->tag->urgentclient = c;
-                setborders(c->tag);
+                setborders(c->tag, false);
         }
         else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
@@ -287,7 +285,7 @@ clientmessage(XEvent *e)
                             }
                             remaptag(c->tag);
                             arrangemon(c->tag->mon);
-                            setborders(c->tag);
+                            setborders(c->tag, true);
                             drawbar(c->tag->mon);
                 }
         }
@@ -356,7 +354,6 @@ configurenotify(XEvent *e)
 
         // Update monitor setup
         updatemons();
-        focusmon(mons);
 
         // Calculate combined monitor width
         sw = 0;
@@ -648,6 +645,8 @@ remaptag(Tag *t)
                 return;
         }
         for (Client *c = t->clients; c; c = c->next) mapclient(c);
+
+        XSync(dpy, 0);
 }
 
 void
@@ -719,25 +718,15 @@ focus(Window w, Client *c, bool warp)
 void
 focusclient(Client *c, bool warp)
 {
-        // Previous selc
-        Client *pselc = selc;
-
-        // Try to focus client on currenttag of the currently focused monitor
         if (!c) {
-                c = currenttag(selmon)->focusclients;
-                if (c && c != selc) {
-                        focusclient(c, warp);
-                } else if (!c) {
-                        selc = NULL;
-                        grabbutton(pselc);
-                        focus(0, NULL, warp);
-                }
+                if (!selc) focus(0, NULL, false);
                 return;
         }
 
-        selc = c;
-        if (selc != pselc) grabbutton(pselc);
-        grabbutton(selc);
+        if (selc && c != selc) {
+                XGrabButton(dpy, Button1, AnyModifier, selc->win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
+        }
+        XUngrabButton(dpy, Button1, AnyModifier, c->win);
 
         Tag *t = c->tag;
         if (c != t->focusclients) {
@@ -751,14 +740,17 @@ focusclient(Client *c, bool warp)
                         c->prevfocus->nextfocus = c;
         }
         c->nextfocus = NULL;
-
         t->focusclients = c;
-
         if (c == t->urgentclient) t->urgentclient = NULL;
 
-        setborders(c->tag);
+        // Set borders to inactive on previous monitor
+        if (c->m != selmon) setborders(currenttag(selmon), false);
+        setborders(c->tag, true);
 
-        focus(0, selc, warp);
+        selmon = c->m;
+
+        focus(0, c, warp);
+        XSync(dpy, 0);
 }
 
 void
@@ -773,7 +765,10 @@ focusattach(Client *c)
         c->nextfocus = NULL;
         c->prevfocus = t->focusclients;
 
-        if (c->prevfocus) c->prevfocus->nextfocus = c;
+        if (c->prevfocus) {
+                c->prevfocus->nextfocus = c;
+                XGrabButton(dpy, Button1, AnyModifier, c->prevfocus->win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
+        }
 
         t->focusclients = c;
 }
@@ -1001,9 +996,10 @@ fullscreen(Arg* arg)
 void
 mvwintomon(Arg *arg)
 {
-        Tag *t = currenttag(selmon);
-        if (!t->focusclients || t->tf & TAG_FULLSCREEN) return;
-        if (!mons->next) return;
+        if (!selc || !mons->next) return;
+
+        Tag *t = selc->tag;
+        if (t->tf & TAG_FULLSCREEN) return;
 
         // Target monitor to move window to
         Monitor *tm;
@@ -1011,16 +1007,18 @@ mvwintomon(Arg *arg)
         else if (arg->i == -1) tm = selmon->prev ? selmon->prev : lastmon;
         else return;
 
+        if (tm == selmon) return;
+
         if (currenttag(tm)->tf & TAG_FULLSCREEN) return;
 
         // Move client (win) to target monitor
-        _mvwintomon(t->focusclients, tm, NULL);
+        _mvwintomon(selc, tm, NULL);
 
         // Update bartags of target monitor
         tm->bartags[tm->tag * 2] = '*';
         drawbar(tm);
 
-        setborders(currenttag(tm));
+        setborders(currenttag(tm), false);
 
         arrangemon(tm);
         arrangemon(selmon);
@@ -1169,22 +1167,6 @@ cycletag(Arg *arg)
 }
 
 void
-focusmon(Monitor *m)
-{
-        if (!m) return;
-
-        // Previous monitor
-        Monitor *pm = selmon;
-
-        selmon = m;
-
-        // Set borders to inactive on previous monitor
-        setborders(currenttag(pm));
-
-        XSync(dpy, 0);
-}
-
-void
 cyclemon(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
@@ -1196,8 +1178,28 @@ cyclemon(Arg *arg)
         else
                 m = selmon->prev ? selmon->prev : lastmon;
 
-        focusmon(m);
-        focusclient(currenttag(m)->focusclients, true);
+        if (m == selmon) return;
+
+        // Update bartags of monitor to focus
+        m->bartags[m->tag * 2] = '>';
+        drawbar(m);
+
+        // Update bartags of previous focused monitor
+        if (currenttag(selmon)->clientnum) selmon->bartags[selmon->tag * 2] = '*';
+        else selmon->bartags[selmon->tag * 2] = ' ';
+        drawbar(selmon);
+
+        Client *c = currenttag(m)->focusclients;
+        if (c) {
+                focusclient(c, true);
+                return;
+        }
+        setborders(currenttag(selmon), false);
+        setborders(currenttag(m), true);
+
+        selmon = m;
+        focus(0, NULL, true);
+
         XSync(dpy, 0);
 }
 
@@ -1266,17 +1268,6 @@ focustag(Arg *arg)
 
 /*** Util functions ***/
 
-void
-grabbutton(Client *c)
-{
-    if (!c) return;
-
-    XUngrabButton(dpy, Button1, AnyModifier, c->win);
-    if (c != selc)
-            XGrabButton(dpy, Button1, AnyModifier, c->win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
-
-}
-
 unsigned int
 cleanmask(unsigned int mask)
 {
@@ -1324,7 +1315,7 @@ alreadymapped(Window w)
 }
 
 void
-setborders(Tag *t)
+setborders(Tag *t, bool active)
 {
         if (!t || !t->clients) return;
 
@@ -1337,7 +1328,7 @@ setborders(Tag *t)
         // Set borders for selected tag
         for (Client *c = t->clients; c; c = c->next) {
                 if (c->cf & CL_DIALOG) continue;
-                if (c == t->focusclients && selmon == t->mon)
+                if (c == t->focusclients && active)
                         setborder(c->win, borderwidth, bordercolor);
                 else if (c == t->urgentclient)
                         setborder(c->win, borderwidth, bordercolor_urgent);
