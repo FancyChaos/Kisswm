@@ -40,8 +40,8 @@ enum {
 };
 
 typedef enum {
-        CL_NORMAL = 1 << 0,
-        CL_DIALOG = 1 << 1
+        CL_DIALOG = 1 << 0,
+        CL_FLOAT = 1 << 1
 } client_flags;
 
 typedef union {
@@ -86,7 +86,6 @@ struct Client {
         Client *next, *prev;
         Client *nextfocus, *prevfocus;
         client_flags cf;
-        bool floating;
         int x;
         int y;
         int width;
@@ -307,12 +306,10 @@ maprequest(XEvent *e)
         c->cf = 0;
 
         // Set floating if dialog
-        c->floating = false;
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
         if (net_win_types[NET_UTIL] == wintype ||
             net_win_types[NET_DIALOG] == wintype) {
-                c->cf |= CL_DIALOG;
-                c->floating = true;
+                c->cf |= CL_DIALOG|CL_FLOAT;
         }
 
         attach(c);
@@ -799,7 +796,7 @@ detach(Client *c)
         if (!t) return;
 
         t->clientnum -= 1;
-        if (c->floating) t->fclientnum -= 1;
+        if (c->cf & CL_FLOAT) t->fclientnum -= 1;
         else t->tclientnum -= 1;
 
         // If this was the last open client on the tag
@@ -824,7 +821,7 @@ attach(Client *c)
         if (!t) return;
 
         t->clientnum += 1;
-        if (c->floating) t->fclientnum += 1;
+        if (c->cf & CL_FLOAT) t->fclientnum += 1;
         else t->tclientnum += 1;
 
         c->next = NULL;
@@ -893,11 +890,10 @@ arrangemon(Monitor *m)
 
         int masterarea = (m->width / 2) + t->masteroffset;
 
-        // First client gets full or half monitor if multiple clients
+        // Get first client which is NOT a floating client
         Client *fc = t->clients;
-        // Ignore floating clients
-        for (; fc && fc->floating; fc = fc->next);
-        if (fc && fc->floating) return;
+        for (; fc && fc->cf & CL_FLOAT; fc = fc->next);
+        if (fc && fc->cf & CL_FLOAT) return;
 
         fc->width = wc.width = ((t->tclientnum == 1) ? m->width : masterarea) - borderoffset;
         fc->height = wc.height = m->height - statusbar.height - borderwidth - borderoffset;
@@ -914,7 +910,7 @@ arrangemon(Monitor *m)
         int rightheight = (m->height - statusbar.height - borderwidth) / (t->tclientnum - 1);
         int prevheight = fc->y;
         for (Client *c = fc->next; c; c = c->next) {
-                if (c->floating) continue;
+                if (c->cf & CL_FLOAT) continue;
                 c->width = wc.width = m->width - masterarea - borderoffset;
                 c->height = wc.height = rightheight - borderoffset;
                 c->x = wc.x = masterarea + m->x;
@@ -991,7 +987,7 @@ fullscreen(Arg* arg)
 void
 mvwintomon(Arg *arg)
 {
-        if (!selc || selc->floating) return;
+        if (!selc || selc->cf & CL_FLOAT) return;
         if (!mons->next) return;
 
         // Target monitor to move window to
