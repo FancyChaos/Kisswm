@@ -164,7 +164,6 @@ void initmons(void);
 void generatebartags(Monitor*);
 void _mvwintotag(Client*, Tag*);
 void _mvwintomon(Client*, Monitor*, Tag*);
-void togglefullscreen(Client*);
 void attach(Client*);
 void detach(Client*);
 void focusattach(Client*);
@@ -641,8 +640,8 @@ remaptag(Tag *t)
 void
 closeclient(Window w)
 {
-        Client *c = (selc && selc->win == w) ? selc : NULL;
-        if (!c && !(c = wintoclient(w))) return;
+        Client *c = NULL;
+        if (!(c = wintoclient(w))) return;
 
         Monitor *m = c->m;
         Tag *t = c->tag;
@@ -658,8 +657,13 @@ closeclient(Window w)
                 c->m->bartags[gettagnum(c->tag) * 2] = ' ';
 
         free(c);
-        arrangemon(m);
-        if (t == currenttag(m)) focusclient(t->focusclients, true);
+
+        // if the tag where client closed is active (seen)
+        if (t == currenttag(m)) {
+                remaptag(t);
+                arrangemon(m);
+                focusclient(t->focusclients, true);
+        }
         drawbar(m);
 }
 
