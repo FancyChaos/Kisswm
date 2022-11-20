@@ -342,6 +342,7 @@ configurenotify(XEvent *e)
 
         // Update monitor setup
         updatemons();
+        focusmon(mons);
 
         // Calculate combined monitor width
         sw = 0;
@@ -1509,17 +1510,21 @@ updatemons(void)
         lastmon->next = NULL;
         currmonitornum = mn;
 
-        // These monitors are not active anymore
-        // Move any window to the first mon
-        for (Monitor *nm = m; nm; m = nm) {
-                nm = m->next;
-                destroymon(m, mons);
-        }
+        // Move any client of previous active monitors to the main one
+        if (m) {
+                // These monitors are not active anymore
+                // Move any window to the first mon
+                for (Monitor *nm = m; nm; m = nm) {
+                        nm = m->next;
+                        destroymon(m, mons);
+                }
 
-        // Only map client of active tag within the first monitor (selmon/mons)
-        for (int i = 0; i < tags_num; ++i) unmaptag(&(mons->tags[i]));
-        maptag(currenttag(mons));
-        focusmon(mons);
+                // Only map client of active tag within the first monitor (selmon/mons)
+                for (int i = 0; i < tags_num; ++i) unmaptag(&(mons->tags[i]));
+                maptag(currenttag(mons));
+                updatemonmasteroffset(mons, 0);
+                mons->bartags[mons->tag * 2] = '>';
+        }
 
         XRRFreeMonitors(info);
         XSync(dpy, 0);
@@ -1531,12 +1536,14 @@ destroymon(Monitor *m, Monitor *tm)
         // Destroy monitor and move clients
         // to different monitor if wished
         if (tm && tm != m) {
-            for (int i = 0; i < tags_num; ++i) {
-                for (Client *c = m->tags[i].clients; c; c = c->next) {
-                        _mvwintomon(c, tm, &(tm->tags[i]));
-                        tm->bartags[i * 2] = '*';
+                for (int i = 0; i < tags_num; ++i) {
+                        Client *nc = NULL;
+                        for (Client *c = m->tags[i].clients; c; c = nc) {
+                                nc = c->next;
+                                _mvwintomon(c, tm, &(tm->tags[i]));
+                                tm->bartags[i * 2] = '*';
+                        }
                 }
-            }
         }
 
         m->prev = m->next = NULL;
