@@ -85,7 +85,7 @@ struct Colors {
 
 struct Client {
         Window win;
-        Monitor *m;
+        Monitor *mon;
         Tag *tag;
         Client *next, *prev;
         Client *nextfocus, *prevfocus;
@@ -128,6 +128,7 @@ struct Monitor {
 };
 
 void grabbutton(Client *c);
+void ungrabbutton(Client *c);
 unsigned int cleanmask(unsigned int);
 int gettagnum(Tag*);
 void updatetagmasteroffset(Monitor*, int);
@@ -242,7 +243,7 @@ buttonpress(XEvent *e)
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
-        if (selmon != c->m) focusmon(c->m);
+        if (selmon != c->mon) focusmon(c->mon);
         focusclient(c, false);
 }
 
@@ -264,15 +265,15 @@ clientmessage(XEvent *e)
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
-        if (ev->message_type == net_atoms[NET_ACTIVE] && selc && c->tag != selc->tag) {
-                c->m->bartags[gettagnum(c->tag) * 2] = '!';
+        if (ev->message_type == net_atoms[NET_ACTIVE] && c->tag != currenttag(selmon)) {
+                c->mon->bartags[gettagnum(c->tag) * 2] = '!';
                 c->tag->urgentclient = c;
                 setborders(c->tag);
         }
         else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
-                            if (c->tag != currenttag(c->m)) return;
+                            if (c->tag != currenttag(c->mon)) return;
 
                             int fs = c->tag->tf & TAG_FULLSCREEN;
                             if (!fs && ev->data.l[0] == 1) {
@@ -318,7 +319,7 @@ maprequest(XEvent *e)
         Client *c = malloc(sizeof(Client));
         c->next = c->prev = c->nextfocus = c->prevfocus = NULL;
         c->win = ev->window;
-        c->m = selmon;
+        c->mon = selmon;
         c->tag = ct;
         c->cf = 0;
 
@@ -334,7 +335,7 @@ maprequest(XEvent *e)
 
         // Already arrange monitor before new window is mapped
         // This will reduce flicker of client
-        arrangemon(c->m);
+        arrangemon(c->mon);
 
         mapclient(c);
 
@@ -592,7 +593,7 @@ _mvwintomon(Client *c, Monitor *m, Tag *t)
         detach(c);
         focusdetach(c);
 
-        c->m = m;
+        c->mon = m;
         c->tag = tt;
 
         attach(c);
@@ -648,6 +649,8 @@ remaptag(Tag *t)
                 return;
         }
         for (Client *c = t->clients; c; c = c->next) mapclient(c);
+
+        XSync(dpy, 0);
 }
 
 void
@@ -656,7 +659,7 @@ closeclient(Window w)
         Client *c = NULL;
         if (!(c = wintoclient(w))) return;
 
-        Monitor *m = c->m;
+        Monitor *m = c->mon;
         Tag *t = c->tag;
 
         // Reset fullscreen client on current tag when a window closes
@@ -666,8 +669,8 @@ closeclient(Window w)
         focusdetach(c);
 
         // Clear statusbar if last client and not focused
-        if (!c->tag->clientnum && currenttag(c->m) != c->tag)
-                c->m->bartags[gettagnum(c->tag) * 2] = ' ';
+        if (!c->tag->clientnum && currenttag(c->mon) != c->tag)
+                c->mon->bartags[gettagnum(c->tag) * 2] = ' ';
 
         free(c);
 
@@ -719,8 +722,6 @@ focus(Window w, Client *c, bool warp)
 void
 focusclient(Client *c, bool warp)
 {
-        // Previous selc
-        Client *pselc = selc;
 
         // Try to focus client on currenttag of the currently focused monitor
         if (!c) {
@@ -728,16 +729,15 @@ focusclient(Client *c, bool warp)
                 if (c && c != selc) {
                         focusclient(c, warp);
                 } else if (!c) {
+                        if (selc) grabbutton(selc);
                         selc = NULL;
-                        grabbutton(pselc);
                         focus(0, NULL, warp);
                 }
                 return;
         }
 
-        selc = c;
-        if (selc != pselc) grabbutton(pselc);
-        grabbutton(selc);
+        if (c != selc) grabbutton(selc);
+        ungrabbutton(c);
 
         Tag *t = c->tag;
         if (c != t->focusclients) {
@@ -751,14 +751,15 @@ focusclient(Client *c, bool warp)
                         c->prevfocus->nextfocus = c;
         }
         c->nextfocus = NULL;
-
         t->focusclients = c;
-
         if (c == t->urgentclient) t->urgentclient = NULL;
+
+        selc = c;
 
         setborders(c->tag);
 
-        focus(0, selc, warp);
+        focus(0, c, warp);
+        XSync(dpy, 0);
 }
 
 void
@@ -986,9 +987,9 @@ spawn(Arg *arg)
 void
 fullscreen(Arg* arg)
 {
-        Tag *t = currenttag(selmon);
-        if (!t->focusclients) return;
+        if (!selc) return;
 
+        Tag *t = selc->tag;
         if (t->tf & TAG_FULLSCREEN) disablefullscreen(t);
         else enablefullscreen(t);
 
@@ -1001,9 +1002,10 @@ fullscreen(Arg* arg)
 void
 mvwintomon(Arg *arg)
 {
-        Tag *t = currenttag(selmon);
-        if (!t->focusclients || t->tf & TAG_FULLSCREEN) return;
-        if (!mons->next) return;
+        if (!selc || !mons->next) return;
+
+        Tag *t = selc->tag;
+        if (t->tf & TAG_FULLSCREEN) return;
 
         // Target monitor to move window to
         Monitor *tm;
@@ -1011,10 +1013,12 @@ mvwintomon(Arg *arg)
         else if (arg->i == -1) tm = selmon->prev ? selmon->prev : lastmon;
         else return;
 
+        if (tm == selmon) return;
+
         if (currenttag(tm)->tf & TAG_FULLSCREEN) return;
 
         // Move client (win) to target monitor
-        _mvwintomon(t->focusclients, tm, NULL);
+        _mvwintomon(selc, tm, NULL);
 
         // Update bartags of target monitor
         tm->bartags[tm->tag * 2] = '*';
@@ -1037,7 +1041,7 @@ mvwintotag(Arg *arg)
         if ((arg->ui - 1) == selmon->tag) return;
 
         // Dont allow on fullscreen
-        Tag *t = currenttag(selmon);
+        Tag *t = selc->tag;
         if (t->tf & TAG_FULLSCREEN) return;
 
         // Get tag to move the window to
@@ -1070,8 +1074,7 @@ followwintotag(Arg *arg)
 {
         if (!selc) return;
 
-        Tag *t = currenttag(selmon);
-
+        Tag *t = selc->tag;
         if (t->tf & TAG_FULLSCREEN) return;
         if (arg->i != 1 && arg->i != -1) return;
 
@@ -1176,6 +1179,16 @@ focusmon(Monitor *m)
         // Previous monitor
         Monitor *pm = selmon;
 
+        // Update bartags of previous focused monitor
+        if (currenttag(pm)->clientnum) pm->bartags[pm->tag * 2] = '*';
+        else pm->bartags[pm->tag * 2] = ' ';
+        drawbar(pm);
+
+        // Update bartags of monitor to focus
+        m->bartags[m->tag * 2] = '>';
+        drawbar(m);
+
+        // Set current monitor
         selmon = m;
 
         // Set borders to inactive on previous monitor
@@ -1196,6 +1209,8 @@ cyclemon(Arg *arg)
         else
                 m = selmon->prev ? selmon->prev : lastmon;
 
+        if (m == selmon) return;
+
         focusmon(m);
         focusclient(currenttag(m)->focusclients, true);
         XSync(dpy, 0);
@@ -1208,7 +1223,7 @@ cycleclient(Arg *arg)
         if (arg->i != 1 && arg->i != -1) return;
 
         // Dont allow on fullscreen
-        Tag *t = currenttag(selmon);
+        Tag *t = selc->tag;
         if(!t || t->tf & TAG_FULLSCREEN) return;
 
         if  (t->clientnum < 2) return;
@@ -1270,11 +1285,15 @@ void
 grabbutton(Client *c)
 {
     if (!c) return;
+    XGrabButton(dpy, Button1, AnyModifier, c->win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
 
+}
+
+void
+ungrabbutton(Client *c)
+{
+    if (!c) return;
     XUngrabButton(dpy, Button1, AnyModifier, c->win);
-    if (c != selc)
-            XGrabButton(dpy, Button1, AnyModifier, c->win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
-
 }
 
 unsigned int
@@ -1337,7 +1356,7 @@ setborders(Tag *t)
         // Set borders for selected tag
         for (Client *c = t->clients; c; c = c->next) {
                 if (c->cf & CL_DIALOG) continue;
-                if (c == t->focusclients && selmon == t->mon)
+                if (c == selc && selmon == t->mon)
                         setborder(c->win, borderwidth, bordercolor);
                 else if (c == t->urgentclient)
                         setborder(c->win, borderwidth, bordercolor_urgent);
