@@ -149,6 +149,8 @@ void mvwintomon(Arg*);
 void followwintotag(Arg*);
 void mvwin(Arg*);
 void fullscreen(Arg*);
+void enablefullscreen(Tag*);
+void disablefullscreen(Tag*);
 void focustag(Arg*);
 void cycletag(Arg*);
 void cycleclient(Arg*);
@@ -266,16 +268,27 @@ clientmessage(XEvent *e)
                 c->m->bartags[gettagnum(c->tag) * 2] = '!';
                 c->tag->urgentclient = c;
                 setborders(c->tag);
-        } else if (ev->message_type == net_atoms[NET_STATE]) {
+        }
+        else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
-                            fprintf(stderr, "Fullscreen DATA0: %ld\n", ev->data.l[0]);
-                            fprintf(stderr, "Fullscreen DATA1: %ld\n", ev->data.l[1]);
-                            fprintf(stderr, "Fullscreen DATA2: %ld\n\n", ev->data.l[2]);
-                            //if (c->tag->fsclient == c && ev->data.l[0] == 0)
-                            //        togglefullscreen(c);
-                            //else if (!c->tag->fsclient && ev->data.l[0] == 1)
-                            //        togglefullscreen(c);
+                            if (c->tag != currenttag(c->m)) return;
+
+                            int fs = c->tag->tf & TAG_FULLSCREEN;
+                            if (!fs && ev->data.l[0] == 1) {
+                                    // Enable fullscreen for request window
+                                    enablefullscreen(c->tag);
+                            }
+                            else if (fs && c->tag->focusclients == c && ev->data.l[0] == 0) {
+                                    // Disable fullscreen for request window
+                                    disablefullscreen(c->tag);
+                            } else {
+                                    return;
+                            }
+                            remaptag(c->tag);
+                            arrangemon(c->tag->mon);
+                            setborders(c->tag);
+                            drawbar(c->tag->mon);
                 }
         }
 
