@@ -129,71 +129,74 @@ struct Monitor {
         int width;
 };
 
-void focustag(Tag*);
-void grabbutton(Client *c);
-void ungrabbutton(Client *c);
-unsigned int cleanmask(unsigned int);
-void updatetagmasteroffset(Monitor*, int);
-void focusmon(Monitor*);
-Monitor* createmon(XRRMonitorInfo*);
-void destroymon(Monitor*, Monitor*);
-void updatemons(void);
-void populatemon(Monitor *m, XRRMonitorInfo*);
-void createcolor(const char*, XftColor*);
-bool alreadymapped(Window);
-void setborder(Window, int, unsigned long);
-void setborders(Tag*);
-void remaptag(Tag*);
-void mapclient(Client*);
-void unmapclient(Client*);
-void spawn(Arg*);
-void mvwintotag(Arg*);
-void mvwintomon(Arg*);
-void followwintotag(Arg*);
-void mvwin(Arg*);
-void fullscreen(Arg*);
-void enablefullscreen(Tag*);
-void disablefullscreen(Tag*);
+void key_spawn(Arg*);
+void key_mvwintotag(Arg*);
+void key_mvwintomon(Arg*);
+void key_followwintotag(Arg*);
+void key_mvwin(Arg*);
+void key_fullscreen(Arg*);
 void key_focustag(Arg*);
-void cycletag(Arg*);
-void cycleclient(Arg*);
-void cyclemon(Arg*);
-void killclient(Arg*);
-void closeclient(Window);
-void setup(void);
-Atom getwinprop(Window, Atom);
-Client* wintoclient(Window);
-Bool sendevent(Window, Atom*);
-void initmons(void);
-void generatebartags(Monitor*);
-void _mvwintotag(Client*, Tag*);
-void _mvwintomon(Client*, Monitor*, Tag*);
-void attach(Client*);
-void detach(Client*);
-void focusattach(Client*);
-void focusdetach(Client*);
-void focusclient(Client*, bool);
-void focus(Window, Client*, bool);
-void arrange(void);
-void arrangemon(Monitor*);
-void updatemasteroffset(Arg*);
-void run(void);
-void grabkeys(void);
-int wm_detected(Display*, XErrorEvent*);
-int onxerror(Display*, XErrorEvent*);
-void keypress(XEvent*);
-void configurenotify(XEvent*);
-void propertynotify(XEvent*);
-void configurerequest(XEvent*);
-void maprequest(XEvent*);
-void destroynotify(XEvent*);
-void clientmessage(XEvent*);
-void mappingnotify(XEvent*);
-void buttonpress(XEvent*);
+void key_cycletag(Arg*);
+void key_cycleclient(Arg*);
+void key_cyclemon(Arg*);
+void key_killclient(Arg*);
+void key_updatemasteroffset(Arg*);
 
-void updatebars(void);
-void updatestatustext(void);
-void drawbar(Monitor*);
+void    keypress(XEvent*);
+void    configurenotify(XEvent*);
+void    propertynotify(XEvent*);
+void    configurerequest(XEvent*);
+void    maprequest(XEvent*);
+void    destroynotify(XEvent*);
+void    clientmessage(XEvent*);
+void    mappingnotify(XEvent*);
+void    buttonpress(XEvent*);
+
+void    run(void);
+int     onxerror(Display*, XErrorEvent*);
+int     wm_detected(Display*, XErrorEvent*);
+void    grabbutton(Client *c);
+void    ungrabbutton(Client *c);
+void    createcolor(const char*, XftColor*);
+void    setborder(Window, int, unsigned long);
+void    setborders(Tag*);
+void    populatemon(Monitor *m, XRRMonitorInfo*);
+void    destroymon(Monitor*, Monitor*);
+void    setup(void);
+void    initmons(void);
+void    grabkeys(void);
+bool    alreadymapped(Window);
+Atom    getwinprop(Window, Atom);
+Client *wintoclient(Window);
+Bool    sendevent(Window, Atom*);
+Monitor *createmon(XRRMonitorInfo*);
+unsigned int cleanmask(unsigned int);
+
+void    focustag(Tag*);
+void    updatetagmasteroffset(Monitor*, int);
+void    focusmon(Monitor*);
+void    updatemons(void);
+void    remaptag(Tag*);
+void    mapclient(Client*);
+void    unmapclient(Client*);
+void    enablefullscreen(Tag*);
+void    disablefullscreen(Tag*);
+void    closeclient(Window);
+void    generatebartags(Monitor*);
+void    mvwintotag(Client*, Tag*);
+void    mvwintomon(Client*, Monitor*, Tag*);
+void    attach(Client*);
+void    detach(Client*);
+void    focusattach(Client*);
+void    focusdetach(Client*);
+void    focusclient(Client*, bool);
+void    focus(Window, Client*, bool);
+void    arrange(void);
+void    arrangemon(Monitor*);
+
+void    updatebars(void);
+void    updatestatustext(void);
+void    drawbar(Monitor*);
 
 void (*handler[LASTEvent])(XEvent*) = {
         [KeyPress] = keypress,
@@ -545,6 +548,32 @@ updatestatustext(void)
 }
 
 /*** WM state changing functions ***/
+
+void
+focusmon(Monitor *m)
+{
+        if (!m) return;
+
+        // Previous monitor
+        Monitor *pm = selmon;
+
+        // Update bartags of previous focused monitor
+        if (pm->tag->clientnum) pm->bartags[pm->tag->num * 2] = '*';
+        else pm->bartags[pm->tag->num * 2] = ' ';
+        drawbar(pm);
+
+        // Update bartags of monitor to focus
+        m->bartags[m->tag->num * 2] = '>';
+        drawbar(m);
+
+        // Set current monitor
+        selmon = m;
+
+        // Set borders to inactive on previous monitor
+        setborders(pm->tag);
+
+        XSync(dpy, 0);
+}
 void
 focustag(Tag *t)
 {
@@ -612,7 +641,7 @@ disablefullscreen(Tag *t)
 }
 
 void
-_mvwintomon(Client *c, Monitor *m, Tag *t)
+mvwintomon(Client *c, Monitor *m, Tag *t)
 {
         if (!c || !m) return;
 
@@ -630,7 +659,7 @@ _mvwintomon(Client *c, Monitor *m, Tag *t)
 }
 
 void
-_mvwintotag(Client *c, Tag *t)
+mvwintotag(Client *c, Tag *t)
 {
         // Detach client from current tag
         detach(c);
@@ -974,14 +1003,14 @@ grabkeys(void)
 /*** Keybinding fuctions ***/
 
 void
-updatemasteroffset(Arg *arg)
+key_updatemasteroffset(Arg *arg)
 {
         updatetagmasteroffset(selmon, arg->i);
         arrangemon(selmon);
 }
 
 void
-killclient(Arg *arg)
+key_killclient(Arg *arg)
 {
         if (!selc) return;
 
@@ -994,7 +1023,7 @@ killclient(Arg *arg)
 }
 
 void
-spawn(Arg *arg)
+key_spawn(Arg *arg)
 {
         // Dont allow on fullscreen
         Tag *t = selmon->tag;
@@ -1010,7 +1039,7 @@ spawn(Arg *arg)
 }
 
 void
-fullscreen(Arg* arg)
+key_fullscreen(Arg* arg)
 {
         if (!selc) return;
 
@@ -1025,7 +1054,7 @@ fullscreen(Arg* arg)
 }
 
 void
-mvwintomon(Arg *arg)
+key_mvwintomon(Arg *arg)
 {
         if (!selc || !mons->next) return;
 
@@ -1043,7 +1072,7 @@ mvwintomon(Arg *arg)
         if (tm->tag->tf & TAG_FULLSCREEN) return;
 
         // Move client (win) to target monitor
-        _mvwintomon(selc, tm, NULL);
+        mvwintomon(selc, tm, NULL);
 
         // Update bartags of target monitor
         tm->bartags[tm->tag->num * 2] = '*';
@@ -1059,7 +1088,7 @@ mvwintomon(Arg *arg)
 }
 
 void
-mvwintotag(Arg *arg)
+key_mvwintotag(Arg *arg)
 {
         if (!selc) return;
         if (arg->ui < 1 || arg->ui > tags_num) return;
@@ -1073,7 +1102,7 @@ mvwintotag(Arg *arg)
         Tag *tm = selmon->tags + (arg->ui -1);
 
         // Move the client to tag (detach, attach)
-        _mvwintotag(selc, tm);
+        mvwintotag(selc, tm);
 
         //Unmap moved client
         unmapclient(selc);
@@ -1090,7 +1119,7 @@ mvwintotag(Arg *arg)
 }
 
 void
-followwintotag(Arg *arg)
+key_followwintotag(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
         if (!selc) return;
@@ -1103,12 +1132,12 @@ followwintotag(Arg *arg)
         else if (totag == tags_num) totag = 0;
 
         Tag *tm = selmon->tags + totag;
-        _mvwintotag(selc, tm);
+        mvwintotag(selc, tm);
         focustag(tm);
 }
 
 void
-mvwin(Arg *arg)
+key_mvwin(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
         if (!selc) return;
@@ -1159,7 +1188,7 @@ mvwin(Arg *arg)
 }
 
 void
-cycletag(Arg *arg)
+key_cycletag(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
 
@@ -1171,33 +1200,7 @@ cycletag(Arg *arg)
 }
 
 void
-focusmon(Monitor *m)
-{
-        if (!m) return;
-
-        // Previous monitor
-        Monitor *pm = selmon;
-
-        // Update bartags of previous focused monitor
-        if (pm->tag->clientnum) pm->bartags[pm->tag->num * 2] = '*';
-        else pm->bartags[pm->tag->num * 2] = ' ';
-        drawbar(pm);
-
-        // Update bartags of monitor to focus
-        m->bartags[m->tag->num * 2] = '>';
-        drawbar(m);
-
-        // Set current monitor
-        selmon = m;
-
-        // Set borders to inactive on previous monitor
-        setborders(pm->tag);
-
-        XSync(dpy, 0);
-}
-
-void
-cyclemon(Arg *arg)
+key_cyclemon(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
 
@@ -1216,7 +1219,7 @@ cyclemon(Arg *arg)
 }
 
 void
-cycleclient(Arg *arg)
+key_cycleclient(Arg *arg)
 {
         if (!selc) return;
         if (arg->i != 1 && arg->i != -1) return;
@@ -1525,7 +1528,7 @@ destroymon(Monitor *m, Monitor *tm)
                         Client *nc = NULL;
                         for (Client *c = m->tags[i].clients; c; c = nc) {
                                 nc = c->next;
-                                _mvwintomon(c, tm, tm->tags + i);
+                                mvwintomon(c, tm, tm->tags + i);
                                 tm->bartags[i * 2] = '*';
                         }
                 }
