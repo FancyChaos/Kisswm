@@ -161,7 +161,7 @@ void    grabkeys(void);
 bool    alreadymapped(Window);
 Atom    getwinprop(Window, Atom);
 Client *wintoclient(Window);
-Bool    sendevent(Window, Atom*);
+bool    sendevent(Window, Atom);
 Monitor *createmon(XRRMonitorInfo*);
 unsigned int cleanmask(unsigned int);
 
@@ -596,7 +596,6 @@ setfullscreen(Client *c)
         // Already in fullscreen
         if (!c || c->tag->fsclient || c->cf & CL_DIALOG) return;
 
-        c->tag->fsclient = c;
         // Set fullscreen property
         XChangeProperty(
                 dpy,
@@ -607,18 +606,20 @@ setfullscreen(Client *c)
                 PropModeReplace,
                 (unsigned char*) &net_atoms[NET_FULLSCREEN],
                 1);
+        c->tag->fsclient = c;
 }
 
 void
 unsetfullscreen(Tag *t)
 {
         if (!t->fsclient) return;
-        t->fsclient = NULL;
+
         // Set fullscreen property
         XDeleteProperty(
                 dpy,
                 t->fsclient->win,
                 net_atoms[NET_STATE]);
+        t->fsclient = NULL;
 }
 
 void
@@ -727,7 +728,7 @@ focus(Window w, Client *c, bool warp)
         }
 
         XSetInputFocus(dpy, w, RevertToPointerRoot, CurrentTime);
-        sendevent(w, &icccm_atoms[ICCCM_FOCUS]);
+        sendevent(w, icccm_atoms[ICCCM_FOCUS]);
         XChangeProperty(
                 dpy,
                 root,
@@ -994,7 +995,7 @@ key_killclient(Arg *arg)
 
         XGrabServer(dpy);
 
-        if (!sendevent(selc->win, &icccm_atoms[ICCCM_DEL_WIN]))
+        if (!sendevent(selc->win, icccm_atoms[ICCCM_DEL_WIN]))
                 XKillClient(dpy, selc->win);
 
         XUngrabServer(dpy);
@@ -1022,8 +1023,9 @@ key_fullscreen(Arg* arg)
         if (!selc) return;
 
         Tag *t = selc->tag;
-        if (t->fsclient) unsetfullscreen(t);
-        else setfullscreen(selc);
+        if (!t->fsclient) setfullscreen(selc);
+        else if (t->fsclient == selc) unsetfullscreen(t);
+        else return;
 
         remaptag(t);
         arrangemon(t->mon);
@@ -1348,32 +1350,41 @@ getwinprop(Window w, Atom a)
         return wintype;
 }
 
-Bool
-sendevent(Window w, Atom *prot)
+bool
+sendevent(Window w, Atom prot)
 {
-        Bool protavail = False;
+        bool protavail = false;
         int protcount = 0;
         Atom *avail;
 
-        if (XGetWMProtocols(dpy, w, &avail, &protcount)) {
-                for (int i = 0; i < protcount; ++i)
-                        if (avail[i] == *prot)
-                                protavail = True;
-                XFree(avail);
-        }
+        // Sometimes XGetWMProtocols generate an X11 error.
+        // Happens when a client closes and do not know why yet
+        // Returns 0 on error
+        if (XGetWMProtocols(dpy, w, &avail, &protcount) == 0) return false;
+        // Failsave
+        if (!avail || !protcount) return false;
 
-        if (protavail) {
-                XEvent ev;
-                ev.type = ClientMessage;
-                ev.xclient.window = w;
-                ev.xclient.message_type = icccm_atoms[ICCCM_PROTOCOLS];
-                ev.xclient.format = 32;
-                ev.xclient.data.l[0] = (long) *prot;
-                ev.xclient.data.l[1] = CurrentTime;
-                XSendEvent(dpy, w, False, NoEventMask, &ev);
+        // Check if the desired protocol/atom to send is available on the client
+        for (int i = 0; i < protcount; ++i) {
+                if (avail[i] == prot) {
+                        protavail = true;
+                        break;
+                }
         }
+        XFree(avail);
 
-        return protavail;
+        if (!protavail) return false;
+
+        XEvent ev;
+        ev.type = ClientMessage;
+        ev.xclient.window = w;
+        ev.xclient.message_type = icccm_atoms[ICCCM_PROTOCOLS];
+        ev.xclient.format = 32;
+        ev.xclient.data.l[0] = (long) prot;
+        ev.xclient.data.l[1] = CurrentTime;
+        XSendEvent(dpy, w, False, NoEventMask, &ev);
+
+        return true;
 }
 
 Client*
