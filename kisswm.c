@@ -417,7 +417,9 @@ keypress(XEvent *e)
 int
 onxerror(Display *dpy, XErrorEvent *ee)
 {
-        fprintf(stderr, "#####[ERROR]: An Error occurred#####\n");
+        char error[128] = {0};
+        XGetErrorText(dpy, ee->error_code, error, 128);
+        fprintf(stderr, "[ERROR]: %s\n\n", error);
         return 0;
 }
 
@@ -706,8 +708,6 @@ closeclient(Window w)
         // Clear statusbar if last client and not focused
         if (!t->clientnum && t != m->tag) m->bartags[t->num * 2] = ' ';
 
-        free(c);
-
         // if the tag where client closed is active (seen)
         if (t == m->tag) {
                 remaptag(t);
@@ -715,6 +715,8 @@ closeclient(Window w)
                 focusclient(t->focusclients, true);
         }
         drawbar(m);
+
+        free(c);
 }
 
 void
@@ -792,7 +794,7 @@ focusclient(Client *c, bool warp)
 
         setborders(c->tag);
 
-        focus(0, c, warp);
+        focus(c->win, c, warp);
         XSync(dpy, 0);
 }
 
