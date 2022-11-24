@@ -549,8 +549,7 @@ focusmon(Monitor *m)
         Monitor *pm = selmon;
 
         // Update bartags of previous focused monitor
-        if (pm->tag->clientnum) pm->bartags[pm->tag->num * 2] = '*';
-        else pm->bartags[pm->tag->num * 2] = ' ';
+        pm->bartags[pm->tag->num * 2] = '^';
         drawbar(pm);
 
         // Update bartags of monitor to focus
@@ -1460,11 +1459,22 @@ updatemons(void)
         XRRMonitorInfo *info = XRRGetMonitors(dpy, root, True, &mn);
         if (!info) die("Could not get monitors with Xrandr");
 
+        int monitornum = 0;
+        bool overlaying = false;
         // We assume we ALWAYS have one monitor
         Monitor *m = mons;
         selmon = m;
         lastmon = m;
         for (int n = 0; n < mn; ++n) {
+                // ignore overlaying monitor
+                overlaying = false;
+                for (Monitor *pm = lastmon; n && pm; pm = pm->prev) {
+                        // Check if monitor is overlaying with one of the previous ones
+                        if (info[n].x == pm->x && info[n].y == pm->y)
+                                overlaying = true;
+                }
+                if (overlaying) continue;
+
                 if (!m) {
                         m = createmon(info + n);
                         lastmon->next = m;
@@ -1474,15 +1484,16 @@ updatemons(void)
                         updatetagmasteroffset(m, 0);
                 }
                 // Change bartags accordingly
-                m->snum = n;
+                m->snum = monitornum;
                 snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
-                m->bartags[m->tag->num * 2] = '>';
+                m->bartags[m->tag->num * 2] = n ? '^' : '>';
 
                 lastmon = m;
                 m = m->next;
+                ++monitornum;
         }
         lastmon->next = NULL;
-        currentmonnum = mn;
+        currentmonnum = monitornum;
 
         // Move any client of previous active monitors to the main one
         if (m) {
@@ -1574,6 +1585,7 @@ initmons(void)
                         selmon = m;
                         lastmon = m;
                 } else {
+                        m->bartags[0] = '^';
                         lastmon->next = m;
                         m->prev = lastmon;
                         lastmon = m;
