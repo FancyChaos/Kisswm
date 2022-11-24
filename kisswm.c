@@ -241,6 +241,7 @@ buttonpress(XEvent *e)
         if (!c) return;
 
         if (selmon != c->mon) focusmon(c->mon);
+        XAllowEvents(dpy, ReplayPointer, CurrentTime);
         focusclient(c, false);
 }
 
@@ -1241,7 +1242,7 @@ void
 grabbutton(Client *c)
 {
     if (!c) return;
-    XGrabButton(dpy, Button1, AnyModifier, c->win, False, ButtonPressMask, GrabModeAsync, GrabModeAsync, None, None);
+    XGrabButton(dpy, Button1, AnyModifier, c->win, False, ButtonPressMask, GrabModeSync, GrabModeAsync, None, None);
 
 }
 
@@ -1359,10 +1360,10 @@ sendevent(Window w, Atom prot)
         int protcount = 0;
         Atom *avail;
 
-        // Sometimes XGetWMProtocols generate an X11 error.
-        // Happens when a client closes and do not know why yet
-        // Returns 0 on error
-        if (XGetWMProtocols(dpy, w, &avail, &protcount) == 0) return false;
+        // Sometimes XGetWMProtocols generate an BadWin error.
+        // Happens when a client closes and the previous gets focused.
+        // do not know why yet.
+        if (!XGetWMProtocols(dpy, w, &avail, &protcount)) return false;
         // Failsave
         if (!avail || !protcount) return false;
 
