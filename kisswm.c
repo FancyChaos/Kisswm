@@ -174,7 +174,7 @@ void    mapclient(Client*);
 void    unmapclient(Client*);
 void    setfullscreen(Client*);
 void    unsetfullscreen(Tag*);
-void    closeclient(Window);
+void    closeclient(Client*);
 void    generatebartags(Monitor*);
 void    mvwintotag(Client*, Tag*);
 void    mvwintomon(Client*, Monitor*, Tag*);
@@ -293,7 +293,8 @@ void
 destroynotify(XEvent *e)
 {
         XDestroyWindowEvent *ev = &e->xdestroywindow;
-        if (ev->window) closeclient(ev->window);
+        Client *c = wintoclient(ev->window);
+        closeclient(c);
         XSync(dpy, 0);
 }
 
@@ -691,10 +692,9 @@ remaptag(Tag *t)
 }
 
 void
-closeclient(Window w)
+closeclient(Client *c)
 {
-        Client *c = NULL;
-        if (!(c = wintoclient(w))) return;
+        if (!c) return;
 
         Monitor *m = c->mon;
         Tag *t = c->tag;
@@ -772,7 +772,7 @@ focusclient(Client *c, bool warp)
                 return;
         }
 
-        if (c != selc) grabbutton(selc);
+        if (selc && c != selc) grabbutton(selc);
         ungrabbutton(c);
 
         Tag *t = c->tag;
