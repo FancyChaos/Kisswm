@@ -1301,7 +1301,7 @@ setborders(Tag *t)
         // Set borders for selected tag
         for (Client *c = t->clients; c; c = c->next) {
                 if (c->cf & CL_DIALOG) continue;
-                if (c == selc)
+                if (c->mon == selmon && c == selc)
                         setborder(c->win, borderwidth, bordercolor);
                 else if (c->cf & CL_URGENT)
                         setborder(c->win, borderwidth, bordercolor_urgent);
