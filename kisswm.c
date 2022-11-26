@@ -237,11 +237,22 @@ buttonpress(XEvent *e)
         XButtonPressedEvent *ev = &e->xbutton;
         if (selc && ev->window == selc->win) return;
 
+        XAllowEvents(dpy, ReplayPointer, CurrentTime);
+
+        if (ev->window == root) {
+                for (Monitor *m = mons; m; m = m->next) {
+                        if (ev->x_root <= (m->x + m->width)) {
+                                if (m != selmon) focusmon(m);
+                                break;
+                        }
+                }
+                return;
+        }
+
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
         if (selmon != c->mon) focusmon(c->mon);
-        XAllowEvents(dpy, ReplayPointer, CurrentTime);
         focusclient(c, false);
 }
 
@@ -1599,6 +1610,7 @@ void
 setup(void)
 {
         root = DefaultRootWindow(dpy);
+        XGrabButton(dpy, Button1, AnyModifier, root, False, ButtonPressMask, GrabModeSync, GrabModeAsync, None, None);
 
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
