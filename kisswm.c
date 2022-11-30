@@ -144,6 +144,7 @@ void    destroynotify(XEvent*);
 void    clientmessage(XEvent*);
 void    mappingnotify(XEvent*);
 void    buttonpress(XEvent*);
+void    enternotify(XEvent*);
 
 void    run(void);
 int     onxerror(Display*, XErrorEvent*);
@@ -200,7 +201,8 @@ void (*handler[LASTEvent])(XEvent*) = {
         [MappingNotify] = mappingnotify,
         [DestroyNotify] = destroynotify,
         [ClientMessage] = clientmessage,
-        [ButtonPress] = buttonpress
+        [ButtonPress] = buttonpress,
+        [EnterNotify] = enternotify
 };
 
 #include "kisswm.h"
@@ -232,6 +234,19 @@ char barstatus[256];
 /*** X11 Eventhandling ****/
 
 void
+enternotify(XEvent *e)
+{
+        XCrossingEvent *ev = &e->xcrossing;
+        if (root == ev->window) {
+                XGrabButton(
+                        dpy, Button1, AnyModifier, root, False, ButtonPressMask,
+                        GrabModeSync, GrabModeAsync, None, None);
+                return;
+        }
+        XUngrabButton(dpy, Button1, AnyModifier, root);
+}
+
+void
 buttonpress(XEvent *e)
 {
         XButtonPressedEvent *ev = &e->xbutton;
@@ -242,7 +257,12 @@ buttonpress(XEvent *e)
         if (ev->window == root) {
                 for (Monitor *m = mons; m; m = m->next) {
                         if (ev->x_root <= (m->x + m->width)) {
-                                if (m != selmon) focusmon(m);
+                                if (m != selmon) {
+                                        focusmon(m);
+                                        if (selc) grabbutton(selc);
+                                        selc = NULL;
+                                        focus(0, NULL, false);
+                                }
                                 break;
                         }
                 }
@@ -254,6 +274,7 @@ buttonpress(XEvent *e)
 
         if (selmon != c->mon) focusmon(c->mon);
         focusclient(c, false);
+        setborders(c->tag);
 }
 
 void
@@ -347,6 +368,8 @@ maprequest(XEvent *e)
 
         // Focus new client
         focusclient(c, true);
+
+        XSelectInput(dpy, c->win, EnterWindowMask);
 }
 
 void
@@ -1610,14 +1633,13 @@ void
 setup(void)
 {
         root = DefaultRootWindow(dpy);
-        XGrabButton(dpy, Button1, AnyModifier, root, False, ButtonPressMask, GrabModeSync, GrabModeAsync, None, None);
 
         // Check that no other WM is running
         XSetErrorHandler(wm_detected);
         XSelectInput(
                 dpy,
                 root,
-                SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask);
+                SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask|EnterWindowMask);
         XSync(dpy, 0);
 
         // Set the error handler
