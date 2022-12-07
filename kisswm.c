@@ -149,8 +149,10 @@ void    enternotify(XEvent*);
 void    run(void);
 int     onxerror(Display*, XErrorEvent*);
 int     wm_detected(Display*, XErrorEvent*);
-void    grabbutton(Client *c);
-void    ungrabbutton(Client *c);
+void    grabbutton(Window w, unsigned int button);
+void    grabbuttons(Window w);
+void    ungrabbutton(Window w, unsigned int button);
+void    ungrabbuttons(Window w);
 void    createcolor(const char*, XftColor*);
 void    setborder(Window, int, unsigned long);
 void    setborders(Tag*);
@@ -237,13 +239,8 @@ void
 enternotify(XEvent *e)
 {
         XCrossingEvent *ev = &e->xcrossing;
-        if (root == ev->window) {
-                XGrabButton(
-                        dpy, Button1, AnyModifier, root, False, ButtonPressMask,
-                        GrabModeSync, GrabModeAsync, None, None);
-                return;
-        }
-        XUngrabButton(dpy, Button1, AnyModifier, root);
+        if (root == ev->window) grabbuttons(root);
+        else ungrabbuttons(root);
 }
 
 void
@@ -259,7 +256,7 @@ buttonpress(XEvent *e)
                         if (ev->x_root <= (m->x + m->width)) {
                                 if (m != selmon) {
                                         focusmon(m);
-                                        if (selc) grabbutton(selc);
+                                        if (selc) grabbuttons(selc->win);
                                         selc = NULL;
                                         focus(0, NULL, false);
                                 }
@@ -733,11 +730,15 @@ closeclient(Client *c)
         Monitor *m = c->mon;
         Tag *t = c->tag;
 
+        if (c == selc) selc = NULL;
+
         // Reset fullscreen client on current tag when a window closes
         if (!(c->cf & CL_DIALOG)) unsetfullscreen(c->tag);
 
+        // Detach and free
         detach(c);
         focusdetach(c);
+        free(c);
 
         // Clear statusbar if last client and not focused
         if (!t->clientnum && t != m->tag) m->bartags[t->num * 2] = ' ';
@@ -749,8 +750,6 @@ closeclient(Client *c)
                 focusclient(t->focusclients, true);
         }
         drawbar(m);
-
-        free(c);
 }
 
 void
@@ -799,15 +798,15 @@ focusclient(Client *c, bool warp)
                 if (c && c != selc) {
                         focusclient(c, warp);
                 } else if (!c) {
-                        if (selc) grabbutton(selc);
+                        if (selc) grabbuttons(selc->win);
                         selc = NULL;
                         focus(0, NULL, warp);
                 }
                 return;
         }
 
-        if (selc && c != selc) grabbutton(selc);
-        ungrabbutton(c);
+        if (selc && c != selc) grabbuttons(selc->win);
+        ungrabbuttons(c->win);
 
         Tag *t = c->tag;
         if (c != t->focusclients) {
@@ -1272,18 +1271,33 @@ key_focustag(Arg *arg)
 /*** Util functions ***/
 
 void
-grabbutton(Client *c)
+grabbutton(Window w, unsigned int button)
 {
-    if (!c) return;
-    XGrabButton(dpy, Button1, AnyModifier, c->win, False, ButtonPressMask, GrabModeSync, GrabModeAsync, None, None);
-
+        XGrabButton(
+                dpy, button, AnyModifier, w, False, ButtonPressMask,
+                GrabModeSync, GrabModeAsync, None, None);
 }
 
 void
-ungrabbutton(Client *c)
+grabbuttons(Window w)
 {
-    if (!c) return;
-    XUngrabButton(dpy, Button1, AnyModifier, c->win);
+        for (int i = 0; i < sizeof(buttons)/sizeof(buttons[0]); ++i)
+                grabbutton(w, buttons[i]);
+        XSync(dpy, 0);
+}
+
+void
+ungrabbutton(Window w, unsigned int button)
+{
+        XUngrabButton(dpy, button, AnyModifier, w);
+}
+
+void
+ungrabbuttons(Window w)
+{
+        for (int i = 0; i < sizeof(buttons)/sizeof(buttons[0]); ++i)
+                ungrabbutton(w, buttons[i]);
+        XSync(dpy, 0);
 }
 
 unsigned int
@@ -1393,9 +1407,6 @@ sendevent(Window w, Atom prot)
         int protcount = 0;
         Atom *avail;
 
-        // Sometimes XGetWMProtocols generate an BadWin error.
-        // Happens when a client closes and the previous gets focused.
-        // do not know why yet.
         if (!XGetWMProtocols(dpy, w, &avail, &protcount)) return false;
         // Failsave
         if (!avail || !protcount) return false;

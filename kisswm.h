@@ -12,9 +12,12 @@ static unsigned long bordercolor = 0xFAEBD7;
 static unsigned long bordercolor_inactive = 0x6F6C69;
 static unsigned long bordercolor_urgent = 0xCC3333;
 
-static const char *term[] = { "st", NULL };
-static const char *lock[] = { "fxlock", NULL };
-static const char *dmenucmd[] = { "dmenu_run", "-fn", dmenufont, NULL };
+static const char *term[] = {"st", NULL};
+static const char *lock[] = {"fxlock", NULL};
+static const char *dmenucmd[] = {"dmenu_run", "-fn", dmenufont, NULL};
+
+// Buttons (Mouse clicks) to which windows gets focused
+static const unsigned int buttons[] = {Button1, Button2};
 
 #define MODKEY Mod4Mask
 #define TAGKEYS(KEY,TAG) \
