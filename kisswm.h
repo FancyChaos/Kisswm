@@ -1,16 +1,17 @@
 char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
 
 static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
-
 static const char *barfont       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
-static int barheight = 26;
-static const char *barbg = "";
-static const char *barfg = "white";
 
+static int barheight = 26;
 static int borderwidth = 3;
-static unsigned long bordercolor = 0xFAEBD7;
-static unsigned long bordercolor_inactive = 0x6F6C69;
-static unsigned long bordercolor_urgent = 0xCC3333;
+
+// Colors in RGB representation (alpha, red, green, blue)
+static unsigned long barbg = 0;
+static unsigned long barfg = 0xFFFAEBD7;
+static unsigned long bordercolor = 0xFFFAEBD7;
+static unsigned long bordercolor_inactive = 0xFF6F6C69;
+static unsigned long bordercolor_urgent = 0xFFCC3333;
 
 static const char *term[] = {"st", NULL};
 static const char *lock[] = {"fxlock", NULL};

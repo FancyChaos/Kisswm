@@ -71,7 +71,9 @@ struct Statusbar {
 struct Colors {
         XftColor xbarbg;
         XftColor xbarfg;
-        XftColor xalpha;
+        XftColor xbordercolor;
+        XftColor xbordercolor_inactive;
+        XftColor xbordercolor_urgent;
 };
 
 struct Client {
@@ -153,8 +155,8 @@ void    grabbutton(Window w, unsigned int button);
 void    grabbuttons(Window w);
 void    ungrabbutton(Window w, unsigned int button);
 void    ungrabbuttons(Window w);
-void    createcolor(const char*, XftColor*);
-void    setborder(Window, int, unsigned long);
+void    createcolor(unsigned long color, XftColor*);
+void    setborder(Window, int, XftColor*);
 void    setborders(Tag*);
 void    populatemon(Monitor *m, XRRMonitorInfo*);
 void    destroymon(Monitor*, Monitor*);
@@ -223,6 +225,7 @@ Statusbar statusbar;
 XftFont *xfont;
 XGlyphInfo xglyph;
 Colors colors;
+
 int screen;
 int sw;
 int currentmonnum;
@@ -486,14 +489,13 @@ drawbar(Monitor *m)
                 return;
         }
 
-        if (*barbg != '\0')
-                XftDrawRect(
-                        statusbar.xdraw,
-                        &colors.xbarbg,
-                        m->x,
-                        m->y,
-                        (unsigned int) m->width,
-                        (unsigned int) statusbar.height);
+        XftDrawRect(
+                statusbar.xdraw,
+                &colors.xbarbg,
+                m->x,
+                m->y,
+                (unsigned int) m->width,
+                (unsigned int) statusbar.height);
 
         int bartagslen = (int) strnlen(m->bartags, m->bartagssize);
         int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
@@ -1308,17 +1310,22 @@ cleanmask(unsigned int mask)
 }
 
 void
-createcolor(const char *color, XftColor *dst)
+createcolor(unsigned long color, XftColor *dst)
 {
-        if (*color == '\0') return;
-
-        if (!XftColorAllocName(
+        XRenderColor xcolor = {
+                .blue = (unsigned short) (color << 8),
+                .green = (unsigned short) color & 0xFF00,
+                .red = (unsigned short) ((color >> 8) & 0xFF00),
+                .alpha = (unsigned short) ((color >> 16) & 0xFF00)
+        };
+        if (!XftColorAllocValue(
                     dpy,
                     DefaultVisual(dpy, screen),
                     DefaultColormap(dpy, screen),
-                    color,
+                    &xcolor,
                     dst))
-                die("Could not load color: %s\n", color);
+                die("Could not create color: %lu\n", color);
+        dst->pixel |= (unsigned long) 0xff << 24;
 }
 
 bool
@@ -1342,7 +1349,7 @@ setborders(Tag *t)
 
         // Do not set border when fullscreen client
         if (t->fsclient) {
-                setborder(t->fsclient->win, 0, 0);
+                setborder(t->fsclient->win, 0, NULL);
                 return;
         }
 
@@ -1350,22 +1357,22 @@ setborders(Tag *t)
         for (Client *c = t->clients; c; c = c->next) {
                 if (c->cf & CL_DIALOG) continue;
                 if (c->mon == selmon && c == selc)
-                        setborder(c->win, borderwidth, bordercolor);
+                        setborder(c->win, borderwidth, &colors.xbordercolor);
                 else if (c->cf & CL_URGENT)
-                        setborder(c->win, borderwidth, bordercolor_urgent);
+                        setborder(c->win, borderwidth, &colors.xbordercolor_urgent);
                 else
-                        setborder(c->win, borderwidth, bordercolor_inactive);
+                        setborder(c->win, borderwidth, &colors.xbordercolor_inactive);
         }
 }
 
 void
-setborder(Window w, int width, unsigned long color)
+setborder(Window w, int width, XftColor *color)
 {
         XWindowChanges wc;
         wc.border_width = width;
         XConfigureWindow(dpy, w, CWBorderWidth, &wc);
 
-        if (color) XSetWindowBorder(dpy, w, color);
+        if (color) XSetWindowBorder(dpy, w, color->pixel);
 }
 
 Atom
@@ -1700,13 +1707,14 @@ setup(void)
         xfont = XftFontOpenName(dpy, screen, barfont);
         if (!xfont) die("Cannot load font: %s\n", barfont);
 
-        // Set up colors
-        XRenderColor alpha = {0x0000, 0x0000, 0x0000, 0xffff};
-        if (!XftColorAllocValue(dpy, DefaultVisual(dpy, screen), DefaultColormap(dpy, screen), &alpha, &colors.xalpha))
-                die("Could not load color: alpha\n");
+        // Setup bar colors
         createcolor(barbg, &colors.xbarbg);
         createcolor(barfg, &colors.xbarfg);
 
+        // Setup border colors
+        createcolor(bordercolor, &colors.xbordercolor);
+        createcolor(bordercolor_inactive, &colors.xbordercolor_inactive);
+        createcolor(bordercolor_urgent, &colors.xbordercolor_urgent);
 
         // Setup monitors and Tags
         initmons();
