@@ -53,6 +53,19 @@ typedef struct {
         Arg arg;
 } Key;
 
+typedef struct {
+        XftColor xft_color;
+        Colormap cmap;
+} Color;
+
+struct Colors {
+        Color barbg;
+        Color barfg;
+        Color bordercolor;
+        Color bordercolor_inactive;
+        Color bordercolor_urgent;
+};
+
 typedef struct Monitor Monitor;
 typedef struct Client Client;
 typedef struct Tag Tag;
@@ -62,18 +75,10 @@ typedef struct Statusbar Statusbar;
 struct Statusbar {
         Window win;
         XftDraw *xdraw;
-        Visual *visual;
+        Colormap cmap;
         int depth;
         int width;
         int height;
-};
-
-struct Colors {
-        XftColor xbarbg;
-        XftColor xbarfg;
-        XftColor xbordercolor;
-        XftColor xbordercolor_inactive;
-        XftColor xbordercolor_urgent;
 };
 
 struct Client {
@@ -155,8 +160,8 @@ void    grabbutton(Window w, unsigned int button);
 void    grabbuttons(Window w);
 void    ungrabbutton(Window w, unsigned int button);
 void    ungrabbuttons(Window w);
-void    createcolor(unsigned long color, XftColor*);
-void    setborder(Window, int, XftColor*);
+void    createcolor(unsigned long color, Color*);
+void    setborder(Window, int, Color*);
 void    setborders(Tag*);
 void    populatemon(Monitor *m, XRRMonitorInfo*);
 void    destroymon(Monitor*, Monitor*);
@@ -222,9 +227,10 @@ Monitor *mons, *selmon, *lastmon;
 Client *selc;
 Statusbar statusbar;
 
+Colors colors;
 XftFont *xfont;
 XGlyphInfo xglyph;
-Colors colors;
+XVisualInfo xvisual_info;
 
 int screen;
 int sw;
@@ -491,7 +497,7 @@ drawbar(Monitor *m)
 
         XftDrawRect(
                 statusbar.xdraw,
-                &colors.xbarbg,
+                &colors.barbg.xft_color,
                 m->x,
                 m->y,
                 (unsigned int) m->width,
@@ -513,7 +519,7 @@ drawbar(Monitor *m)
         // Draw statusbartags text
         XftDrawStringUtf8(
                 statusbar.xdraw,
-                &colors.xbarfg,
+                &colors.barfg.xft_color,
                 xfont,
                 m->x,
                 m->y + baroffset,
@@ -536,7 +542,7 @@ drawbar(Monitor *m)
         // Draw statubarstatus
         XftDrawStringUtf8(
                 statusbar.xdraw,
-                &colors.xbarfg,
+                &colors.barfg.xft_color,
                 xfont,
                 m->x + (m->width - xglyph.width),
                 m->y + baroffset,
@@ -1310,22 +1316,30 @@ cleanmask(unsigned int mask)
 }
 
 void
-createcolor(unsigned long color, XftColor *dst)
+createcolor(unsigned long color, Color *dst_color)
 {
-        XRenderColor xcolor = {
-                .blue = (unsigned short) (color << 8),
+        XRenderColor xrender_color = {
+                .blue = (unsigned short) (color << 8) & 0xFF00,
                 .green = (unsigned short) color & 0xFF00,
                 .red = (unsigned short) ((color >> 8) & 0xFF00),
                 .alpha = (unsigned short) ((color >> 16) & 0xFF00)
         };
+         dst_color->cmap = XCreateColormap(
+                                dpy,
+                                root,
+                                xvisual_info.visual,
+                                AllocNone);
         if (!XftColorAllocValue(
                     dpy,
-                    DefaultVisual(dpy, screen),
-                    DefaultColormap(dpy, screen),
-                    &xcolor,
-                    dst))
+                    xvisual_info.visual,
+                    dst_color->cmap,
+                    &xrender_color,
+                    &dst_color->xft_color))
                 die("Could not create color: %lu\n", color);
-        dst->pixel |= (unsigned long) 0xff << 24;
+
+        // Set alpha bits of the pixel. No idea why XftColorAllocValue()
+        // does not do this automatically...
+        dst_color->xft_color.pixel |= (unsigned long) (xrender_color.alpha >> 8) << 24;
 }
 
 bool
@@ -1357,22 +1371,24 @@ setborders(Tag *t)
         for (Client *c = t->clients; c; c = c->next) {
                 if (c->cf & CL_DIALOG) continue;
                 if (c->mon == selmon && c == selc)
-                        setborder(c->win, borderwidth, &colors.xbordercolor);
+                        setborder(c->win, borderwidth, &colors.bordercolor);
                 else if (c->cf & CL_URGENT)
-                        setborder(c->win, borderwidth, &colors.xbordercolor_urgent);
+                        setborder(c->win, borderwidth, &colors.bordercolor_urgent);
                 else
-                        setborder(c->win, borderwidth, &colors.xbordercolor_inactive);
+                        setborder(c->win, borderwidth, &colors.bordercolor_inactive);
         }
 }
 
 void
-setborder(Window w, int width, XftColor *color)
+setborder(Window w, int width, Color *color)
 {
         XWindowChanges wc;
         wc.border_width = width;
         XConfigureWindow(dpy, w, CWBorderWidth, &wc);
 
-        if (color) XSetWindowBorder(dpy, w, color->pixel);
+        if (color && width) {
+                XSetWindowBorder(dpy, w, color->xft_color.pixel);
+        }
 }
 
 Atom
@@ -1703,18 +1719,28 @@ setup(void)
                 (unsigned char*) net_atoms,
                 NET_END);
 
+        // Create global visual
+        if (!XMatchVisualInfo(
+                        dpy,
+                        screen,
+                        32,
+                        TrueColor,
+                        &xvisual_info)) {
+                die("Could not create visual");
+        }
+
         // Setup statusbar font
         xfont = XftFontOpenName(dpy, screen, barfont);
         if (!xfont) die("Cannot load font: %s\n", barfont);
 
         // Setup bar colors
-        createcolor(barbg, &colors.xbarbg);
-        createcolor(barfg, &colors.xbarfg);
+        createcolor(barbg, &colors.barbg);
+        createcolor(barfg, &colors.barfg);
 
         // Setup border colors
-        createcolor(bordercolor, &colors.xbordercolor);
-        createcolor(bordercolor_inactive, &colors.xbordercolor_inactive);
-        createcolor(bordercolor_urgent, &colors.xbordercolor_urgent);
+        createcolor(bordercolor, &colors.bordercolor);
+        createcolor(bordercolor_inactive, &colors.bordercolor_inactive);
+        createcolor(bordercolor_urgent, &colors.bordercolor_urgent);
 
         // Setup monitors and Tags
         initmons();
@@ -1726,29 +1752,15 @@ setup(void)
         statusbar.height = barheight;
 
         XSetWindowAttributes wa;
-        wa.background_pixel = 0;
+        wa.background_pixel = colors.barbg.xft_color.pixel;
         wa.border_pixel = 0;
 
-        unsigned long valuemask = CWBackPixel | CWBorderPixel;
-        statusbar.depth = DefaultDepth(dpy, screen);
-        statusbar.visual = DefaultVisual(dpy, screen);
-
-        XVisualInfo vinfo;
-        if (XMatchVisualInfo(
-                dpy,
-                screen,
-                32,
-                TrueColor,
-                &vinfo)) {
-            statusbar.depth = vinfo.depth;
-            statusbar.visual = vinfo.visual;
-            wa.colormap = XCreateColormap(
-                            dpy,
-                            root,
-                            statusbar.visual,
-                            AllocNone);
-            valuemask = valuemask | CWColormap;
-        }
+        statusbar.cmap = XCreateColormap(
+                                dpy,
+                                root,
+                                xvisual_info.visual,
+                                AllocNone);
+        wa.colormap = statusbar.cmap;
 
         statusbar.win = XCreateWindow(
                         dpy,
@@ -1758,16 +1770,17 @@ setup(void)
                         (unsigned int) statusbar.width,
                         (unsigned int) barheight,
                         0,
-                        statusbar.depth,
+                        xvisual_info.depth,
                         InputOutput,
-                        statusbar.visual,
-                        valuemask,
+                        xvisual_info.visual,
+                        CWBackPixel|CWBorderPixel|CWColormap,
                         &wa);
+
         statusbar.xdraw = XftDrawCreate(
                             dpy,
                             statusbar.win,
-                            statusbar.visual,
-                            DefaultColormap(dpy, screen));
+                            xvisual_info.visual,
+                            statusbar.cmap);
         XMapRaised(dpy, statusbar.win);
 
         // Create statusbars
