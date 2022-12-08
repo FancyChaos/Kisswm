@@ -62,7 +62,6 @@ typedef struct Statusbar Statusbar;
 struct Statusbar {
         Window win;
         XftDraw *xdraw;
-        Visual *visual;
         int depth;
         int width;
         int height;
@@ -222,9 +221,11 @@ Monitor *mons, *selmon, *lastmon;
 Client *selc;
 Statusbar statusbar;
 
+Colors colors;
 XftFont *xfont;
 XGlyphInfo xglyph;
-Colors colors;
+XVisualInfo xvisual_info;
+Colormap xcolormap;
 
 int screen;
 int sw;
@@ -339,6 +340,11 @@ maprequest(XEvent *e)
 
         XWindowAttributes wa;
         if (!XGetWindowAttributes(dpy, ev->window, &wa)) return;
+
+        // Set global colormap
+        XSetWindowAttributes swa;
+        swa.colormap = xcolormap;
+        XChangeWindowAttributes(dpy, ev->window, CWColormap, &swa);
 
         // We assume the maprequest is on the current (selected) monitor
         // Get current tag
@@ -1372,7 +1378,11 @@ setborder(Window w, int width, XftColor *color)
         wc.border_width = width;
         XConfigureWindow(dpy, w, CWBorderWidth, &wc);
 
-        if (color) XSetWindowBorder(dpy, w, color->pixel);
+        if (color) {
+                XSetWindowAttributes wa;
+                wa.border_pixel = color->pixel;
+                XChangeWindowAttributes(dpy, w, CWBorderPixel, &wa);
+        }
 }
 
 Atom
@@ -1726,29 +1736,23 @@ setup(void)
         statusbar.height = barheight;
 
         XSetWindowAttributes wa;
-        wa.background_pixel = 0;
+        wa.background_pixel = colors.xbarbg.pixel;
         wa.border_pixel = 0;
 
-        unsigned long valuemask = CWBackPixel | CWBorderPixel;
-        statusbar.depth = DefaultDepth(dpy, screen);
-        statusbar.visual = DefaultVisual(dpy, screen);
-
-        XVisualInfo vinfo;
-        if (XMatchVisualInfo(
-                dpy,
-                screen,
-                32,
-                TrueColor,
-                &vinfo)) {
-            statusbar.depth = vinfo.depth;
-            statusbar.visual = vinfo.visual;
-            wa.colormap = XCreateColormap(
-                            dpy,
-                            root,
-                            statusbar.visual,
-                            AllocNone);
-            valuemask = valuemask | CWColormap;
+        if (!XMatchVisualInfo(
+                        dpy,
+                        screen,
+                        32,
+                        TrueColor,
+                        &xvisual_info)) {
+                die("Could not create visual");
         }
+        xcolormap = XCreateColormap(
+                        dpy,
+                        root,
+                        xvisual_info.visual,
+                        AllocNone);
+        wa.colormap = xcolormap;
 
         statusbar.win = XCreateWindow(
                         dpy,
@@ -1758,15 +1762,15 @@ setup(void)
                         (unsigned int) statusbar.width,
                         (unsigned int) barheight,
                         0,
-                        statusbar.depth,
+                        xvisual_info.depth,
                         InputOutput,
-                        statusbar.visual,
-                        valuemask,
+                        xvisual_info.visual,
+                        CWBackPixel|CWBorderPixel|CWColormap,
                         &wa);
         statusbar.xdraw = XftDrawCreate(
                             dpy,
                             statusbar.win,
-                            statusbar.visual,
+                            xvisual_info.visual,
                             DefaultColormap(dpy, screen));
         XMapRaised(dpy, statusbar.win);
 
