@@ -225,7 +225,6 @@ Colors colors;
 XftFont *xfont;
 XGlyphInfo xglyph;
 XVisualInfo xvisual_info;
-Colormap xcolormap;
 
 int screen;
 int sw;
@@ -343,7 +342,11 @@ maprequest(XEvent *e)
 
         // Set global colormap
         XSetWindowAttributes swa;
-        swa.colormap = xcolormap;
+        swa.colormap = XCreateColormap(
+                        dpy,
+                        root,
+                        xvisual_info.visual,
+                        AllocNone);
         XChangeWindowAttributes(dpy, ev->window, CWColormap, &swa);
 
         // We assume the maprequest is on the current (selected) monitor
@@ -1324,14 +1327,22 @@ createcolor(unsigned long color, XftColor *dst)
                 .red = (unsigned short) ((color >> 8) & 0xFF00),
                 .alpha = (unsigned short) ((color >> 16) & 0xFF00)
         };
+        Colormap color_colormap = XCreateColormap(
+                                        dpy,
+                                        root,
+                                        xvisual_info.visual,
+                                        AllocNone);
         if (!XftColorAllocValue(
                     dpy,
-                    DefaultVisual(dpy, screen),
-                    DefaultColormap(dpy, screen),
+                    xvisual_info.visual,
+                    color_colormap,
                     &xcolor,
                     dst))
                 die("Could not create color: %lu\n", color);
-        dst->pixel |= (unsigned long) 0xff << 24;
+        // I have no idea why settings those sepcifics bits fixes
+        // the alpha channel...
+        // But it works
+        dst->pixel |= (unsigned long) ((char) (xcolor.alpha >> 8)) << 24;
 }
 
 bool
@@ -1713,6 +1724,16 @@ setup(void)
                 (unsigned char*) net_atoms,
                 NET_END);
 
+        // Create global visual
+        if (!XMatchVisualInfo(
+                        dpy,
+                        screen,
+                        32,
+                        TrueColor,
+                        &xvisual_info)) {
+                die("Could not create visual");
+        }
+
         // Setup statusbar font
         xfont = XftFontOpenName(dpy, screen, barfont);
         if (!xfont) die("Cannot load font: %s\n", barfont);
@@ -1739,20 +1760,11 @@ setup(void)
         wa.background_pixel = colors.xbarbg.pixel;
         wa.border_pixel = 0;
 
-        if (!XMatchVisualInfo(
-                        dpy,
-                        screen,
-                        32,
-                        TrueColor,
-                        &xvisual_info)) {
-                die("Could not create visual");
-        }
-        xcolormap = XCreateColormap(
+        wa.colormap = XCreateColormap(
                         dpy,
                         root,
                         xvisual_info.visual,
                         AllocNone);
-        wa.colormap = xcolormap;
 
         statusbar.win = XCreateWindow(
                         dpy,
@@ -1767,11 +1779,17 @@ setup(void)
                         xvisual_info.visual,
                         CWBackPixel|CWBorderPixel|CWColormap,
                         &wa);
+
+        Colormap statusbar_colormap = XCreateColormap(
+                                        dpy,
+                                        root,
+                                        xvisual_info.visual,
+                                        AllocNone);
         statusbar.xdraw = XftDrawCreate(
                             dpy,
                             statusbar.win,
                             xvisual_info.visual,
-                            DefaultColormap(dpy, screen));
+                            statusbar_colormap);
         XMapRaised(dpy, statusbar.win);
 
         // Create statusbars
