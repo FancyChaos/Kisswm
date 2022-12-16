@@ -183,7 +183,7 @@ void    remaptag(Tag*);
 void    mapclient(Client*);
 void    unmapclient(Client*);
 void    setfullscreen(Client*);
-void    unsetfullscreen(Tag*);
+void    unsetfullscreen(Client*);
 void    closeclient(Client*);
 void    generatebartags(Monitor*);
 void    mvwintotag(Client*, Tag*);
@@ -310,18 +310,25 @@ clientmessage(XEvent *e)
                             if (c->tag != c->mon->tag) return;
 
                             Client *fc = c->tag->fsclient;
-                            if (!fc && ev->data.l[0] == 1) {
-                                    // Enable fullscreen for request window
-                                    setfullscreen(c);
-                            } else if (fc == c && ev->data.l[0] == 0) {
-                                    // Disable fullscreen for request window
-                                    unsetfullscreen(c->tag);
-                            } else {
+                            // Client is not allowed to interrupt
+                            // different clients fullscreen state
+                            if (fc && c != fc) return;
+                            switch (ev->data.l[0]) {
+                            case 2: // Toggle
+                                    if (fc) unsetfullscreen(fc);
+                                    else setfullscreen(c);
+                                    break;
+                            case 1: // Set fullscreen
+                                    if (!fc) setfullscreen(c);
+                                    break;
+                            case 0: // Unset fullscreen
+                                    if (fc) unsetfullscreen(fc);
+                                    break;
+                            default:
                                     return;
                             }
                             remaptag(c->tag);
                             arrangemon(c->tag->mon);
-                            setborders(c->tag);
                             drawbar(c->tag->mon);
                 }
         }
@@ -369,11 +376,14 @@ maprequest(XEvent *e)
 
         // Already arrange monitor before new window is mapped
         // This will reduce flicker of client
+        if (c->tag->fsclient) unsetfullscreen(c->tag->fsclient);
         arrangemon(c->mon);
         remaptag(c->tag);
 
         // Focus new client
         focusclient(c, true);
+
+        drawbar(c->mon);
 
         XSelectInput(dpy, c->win, EnterWindowMask);
 }
@@ -630,6 +640,7 @@ focustag(Tag *t)
 
         // Update statusbar (Due to bartags change)
         drawbar(m);
+        XSync(dpy, 0);
 }
 
 void
@@ -649,19 +660,22 @@ setfullscreen(Client *c)
                 (unsigned char*) &net_atoms[NET_FULLSCREEN],
                 1);
         c->tag->fsclient = c;
+        XRaiseWindow(dpy, c->win);
+        setborders(c->tag);
 }
 
 void
-unsetfullscreen(Tag *t)
+unsetfullscreen(Client *c)
 {
-        if (!t->fsclient) return;
+        if (!c) return;
 
         // Set fullscreen property
         XDeleteProperty(
                 dpy,
-                t->fsclient->win,
+                c->win,
                 net_atoms[NET_STATE]);
-        t->fsclient = NULL;
+        c->tag->fsclient = NULL;
+        setborders(c->tag);
 }
 
 void
@@ -739,9 +753,7 @@ closeclient(Client *c)
         Tag *t = c->tag;
 
         if (c == selc) selc = NULL;
-
-        // Reset fullscreen client on current tag when a window closes
-        if (!(c->cf & CL_DIALOG)) unsetfullscreen(c->tag);
+        if (c == t->fsclient) t->fsclient = NULL;
 
         // Detach and free
         detach(c);
@@ -846,7 +858,7 @@ focusattach(Client *c)
         if (!t) return;
 
         // Reset fullscreen if not dialog
-        if (!(c->cf & CL_DIALOG)) unsetfullscreen(c->tag);
+        if (!(c->cf & CL_DIALOG)) unsetfullscreen(c->tag->fsclient);
 
         c->nextfocus = NULL;
         c->prevfocus = t->focusclients;
@@ -1027,6 +1039,7 @@ grabkeys(void)
 void
 key_updatemasteroffset(Arg *arg)
 {
+        if (selmon->tag->fsclient) return;
         updatetagmasteroffset(selmon, arg->i);
         arrangemon(selmon);
 }
@@ -1034,7 +1047,7 @@ key_updatemasteroffset(Arg *arg)
 void
 key_killclient(Arg *arg)
 {
-        if (!selc || selc->tag->fsclient == selc) return;
+        if (!selc) return;
 
         XGrabServer(dpy);
 
@@ -1047,10 +1060,6 @@ key_killclient(Arg *arg)
 void
 key_spawn(Arg *arg)
 {
-        // Dont allow on fullscreen
-        Tag *t = selmon->tag;
-        if (t->fsclient) return;
-
         if (fork()) return;
 
         if (dpy) close(ConnectionNumber(dpy));
@@ -1067,12 +1076,11 @@ key_fullscreen(Arg* arg)
 
         Tag *t = selc->tag;
         if (!t->fsclient) setfullscreen(selc);
-        else if (t->fsclient == selc) unsetfullscreen(t);
+        else if (t->fsclient == selc) unsetfullscreen(selc);
         else return;
 
         remaptag(t);
         arrangemon(t->mon);
-        focusclient(t->focusclients, true);
         drawbar(t->mon);
 }
 
@@ -1081,7 +1089,8 @@ key_mvwintomon(Arg *arg)
 {
         if (!selc || !mons->next) return;
 
-        Tag *t = selc->tag;
+        Client *c = selc;
+        Tag *t = c->tag;
         if (t->fsclient) return;
 
         // Target monitor to move window to
@@ -1094,7 +1103,7 @@ key_mvwintomon(Arg *arg)
         if (tm->tag->fsclient) return;
 
         // Move client (win) to target monitor
-        mvwintomon(selc, tm, NULL);
+        mvwintomon(c, tm, NULL);
 
         // Update bartags of target monitor
         tm->bartags[tm->tag->num * 2] = '*';
@@ -1116,18 +1125,18 @@ key_mvwintotag(Arg *arg)
         if (arg->ui < 1 || arg->ui > tags_num) return;
         if ((arg->ui - 1) == selmon->tag->num) return;
 
-        // Dont allow on fullscreen
-        Tag *t = selc->tag;
+        Client *c = selc;
+        Tag *t = c->tag;
         if (t->fsclient) return;
 
         // Get tag to move the window to
         Tag *tm = selmon->tags + (arg->ui -1);
 
         // Move the client to tag (detach, attach)
-        mvwintotag(selc, tm);
+        mvwintotag(c, tm);
 
-        //Unmap moved client
-        unmapclient(selc);
+        // Unmap moved client
+        unmapclient(c);
 
         // Update bartags
         selmon->bartags[(arg->ui - 1) * 2] = '*';
