@@ -2,11 +2,11 @@
 #define _POSIX_C_SOURCE 200809L
 #include <bsd/string.h>
 #endif
-#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+#include <time.h>
 #include <string.h>
+#include <unistd.h>
 #include <stdarg.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -99,18 +99,20 @@ struct Client {
 struct Tag {
         // Tag number
         int num;
-        // Overall clients
+        // Client counters
         int clientnum;
-        // Tiling clients
-        int tclientnum;
-        // Floating clients
-        int fclientnum;
-        int masteroffset;
+        int clientnum_tiling;
+        int clientnum_floating;
+        // Layout offset
+        int master_offset;
+        // Assigned monitor
         Monitor *mon;
+        // Clients
         Client *clients;
-        Client *focusclients;
-        // Fullscreen client
-        Client *fsclient;
+        Client *client_last;
+        Client *client_fullscreen;
+        // Client focus order
+        Client *clients_focus;
 };
 
 struct Monitor {
@@ -287,7 +289,8 @@ void
 mappingnotify(XEvent *e)
 {
         XMappingEvent *ev = &e->xmapping;
-        if (ev->request != MappingModifier && ev->request != MappingKeyboard) return;
+        if (ev->request != MappingModifier && ev->request != MappingKeyboard)
+                return;
 
         XRefreshKeyboardMapping(ev);
         grabkeys();
@@ -309,7 +312,7 @@ clientmessage(XEvent *e)
                     ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
                             if (c->tag != c->mon->tag) return;
 
-                            Client *fc = c->tag->fsclient;
+                            Client *fc = c->tag->client_fullscreen;
                             // Client is not allowed to interrupt
                             // different clients fullscreen state
                             if (fc && c != fc) return;
@@ -376,7 +379,8 @@ maprequest(XEvent *e)
 
         // Already arrange monitor before new window is mapped
         // This will reduce flicker of client
-        if (c->tag->fsclient) unsetfullscreen(c->tag->fsclient);
+        if (c->tag->client_fullscreen)
+                unsetfullscreen(c->tag->client_fullscreen);
         arrangemon(c->mon);
         remaptag(c->tag);
 
@@ -421,7 +425,7 @@ configurenotify(XEvent *e)
         XConfigureWindow(dpy, statusbar.win, CWX|CWY|CWWidth|CWHeight, &wc);
         updatebars();
 
-        focusclient(selmon->tag->focusclients, true);
+        focusclient(selmon->tag->clients_focus, true);
 
         XSync(dpy, 0);
 }
@@ -440,7 +444,8 @@ configurerequest(XEvent *e)
 
         // Only allow custom sizes for dialog windows
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
-        if (wintype != net_win_types[NET_UTIL] && wintype != net_win_types[NET_DIALOG])
+        if (wintype != net_win_types[NET_UTIL] &&
+            wintype != net_win_types[NET_DIALOG])
                 return;
 
         XWindowChanges wc;
@@ -500,7 +505,7 @@ drawbar(Monitor *m)
 
         // Do not draw bar if fullscreen window on monitor
         Tag *t = m->tag;
-        if (t->fsclient) {
+        if (t->client_fullscreen) {
                 XSync(dpy, 0);
                 return;
         }
@@ -636,7 +641,7 @@ focustag(Tag *t)
 
         // arrange and focus
         arrangemon(m);
-        focusclient(t->focusclients, true);
+        focusclient(t->clients_focus, true);
 
         // Update statusbar (Due to bartags change)
         drawbar(m);
@@ -647,7 +652,7 @@ void
 setfullscreen(Client *c)
 {
         // Already in fullscreen
-        if (!c || c->tag->fsclient || c->cf & CL_DIALOG) return;
+        if (!c || c->tag->client_fullscreen || c->cf & CL_DIALOG) return;
 
         // Set fullscreen property
         XChangeProperty(
@@ -659,7 +664,7 @@ setfullscreen(Client *c)
                 PropModeReplace,
                 (unsigned char*) &net_atoms[NET_FULLSCREEN],
                 1);
-        c->tag->fsclient = c;
+        c->tag->client_fullscreen = c;
         XRaiseWindow(dpy, c->win);
         setborders(c->tag);
 }
@@ -674,7 +679,7 @@ unsetfullscreen(Client *c)
                 dpy,
                 c->win,
                 net_atoms[NET_STATE]);
-        c->tag->fsclient = NULL;
+        c->tag->client_fullscreen = NULL;
         setborders(c->tag);
 }
 
@@ -732,10 +737,10 @@ remaptag(Tag *t)
         if (t != t->mon->tag) {
                 // if tag is not the current active tag unmap everything
                 for (Client *c = t->clients; c; c = c->next) unmapclient(c);
-        } else if (t->fsclient) {
+        } else if (t->client_fullscreen) {
                 // only map focused client and dialogs on fullscreen
                 for (Client *c = t->clients; c; c = c->next) {
-                        if (c == t->fsclient || c->cf & CL_DIALOG) mapclient(c);
+                        if (c == t->client_fullscreen ||c->cf & CL_DIALOG) mapclient(c);
                         else unmapclient(c);
                 }
         } else {
@@ -753,7 +758,7 @@ closeclient(Client *c)
         Tag *t = c->tag;
 
         if (c == selc) selc = NULL;
-        if (c == t->fsclient) t->fsclient = NULL;
+        if (c == t->client_fullscreen) t->client_fullscreen = NULL;
 
         // Detach and free
         detach(c);
@@ -767,7 +772,7 @@ closeclient(Client *c)
         if (t == m->tag) {
                 remaptag(t);
                 arrangemon(m);
-                focusclient(t->focusclients, true);
+                focusclient(t->clients_focus, true);
         }
         drawbar(m);
 }
@@ -801,9 +806,12 @@ focus(Window w, Client *c, bool warp)
         }
 
         if (w == root)
-                XWarpPointer(dpy, 0, w, 0, 0, 0, 0, selmon->x + selmon->width / 2, selmon->y + selmon->height / 2);
+                XWarpPointer(
+                        dpy, 0, w, 0, 0, 0, 0, selmon->x + selmon->width / 2,
+                        selmon->y + selmon->height / 2);
         else if (c && c->win == w)
-                XWarpPointer(dpy, 0, w, 0, 0, 0, 0,  c->width / 2, c->height / 2);
+                XWarpPointer(
+                        dpy, 0, w, 0, 0, 0, 0,  c->width / 2, c->height / 2);
 
         XSync(dpy, 0);
 }
@@ -814,7 +822,7 @@ focusclient(Client *c, bool warp)
         // Try to focus client on the active tag
         // of the currently focused monitor
         if (!c) {
-                c = selmon->tag->focusclients;
+                c = selmon->tag->clients_focus;
                 if (c && c != selc) {
                         focusclient(c, warp);
                 } else if (!c) {
@@ -829,18 +837,18 @@ focusclient(Client *c, bool warp)
         ungrabbuttons(c->win);
 
         Tag *t = c->tag;
-        if (c != t->focusclients) {
+        if (c != t->clients_focus) {
                 if (c->prevfocus)
                         c->prevfocus->nextfocus = c->nextfocus;
                 if (c->nextfocus)
                         c->nextfocus->prevfocus = c->prevfocus;
 
-                c->prevfocus = t->focusclients;
+                c->prevfocus = t->clients_focus;
                 if (c->prevfocus)
                         c->prevfocus->nextfocus = c;
         }
         c->nextfocus = NULL;
-        t->focusclients = c;
+        t->clients_focus = c;
         c->cf &= ~CL_URGENT;
 
         selc = c;
@@ -858,14 +866,14 @@ focusattach(Client *c)
         if (!t) return;
 
         // Reset fullscreen if not dialog
-        if (!(c->cf & CL_DIALOG)) unsetfullscreen(c->tag->fsclient);
+        if (!(c->cf & CL_DIALOG)) unsetfullscreen(c->tag->client_fullscreen);
 
         c->nextfocus = NULL;
-        c->prevfocus = t->focusclients;
+        c->prevfocus = t->clients_focus;
 
         if (c->prevfocus) c->prevfocus->nextfocus = c;
 
-        t->focusclients = c;
+        t->clients_focus = c;
 }
 
 void
@@ -874,8 +882,8 @@ focusdetach(Client *c)
         Tag *t = c->tag;
         if (!t) return;
 
-        if (c == t->focusclients)
-                t->focusclients = c->prevfocus;
+        if (c == t->clients_focus)
+                t->clients_focus = c->prevfocus;
 
         if (c->prevfocus)
                 c->prevfocus->nextfocus = c->nextfocus;
@@ -892,15 +900,19 @@ detach(Client *c)
         if (!t) return;
 
         t->clientnum -= 1;
-        if (c->cf & CL_FLOAT) t->fclientnum -= 1;
-        else t->tclientnum -= 1;
+        if (c->cf & CL_FLOAT) t->clientnum_floating -= 1;
+        else t->clientnum_tiling -= 1;
 
         // If this was the last open client on the tag
-        if (!t->clientnum) {
+        if (t->clientnum == 0) {
                 t->clients = NULL;
+                t->client_last = NULL;
+                t->client_fullscreen = NULL;
                 c->next = c->prev = NULL;
                 return;
         }
+
+        if (t->client_last == c) t->client_last = c->prev;
 
         if (c->next) c->next->prev = c->prev;
 
@@ -917,8 +929,10 @@ attach(Client *c)
         if (!t) return;
 
         t->clientnum += 1;
-        if (c->cf & CL_FLOAT) t->fclientnum += 1;
-        else t->tclientnum += 1;
+        if (c->cf & CL_FLOAT) t->clientnum_floating += 1;
+        else t->clientnum_tiling += 1;
+
+        t->client_last = c;
 
         c->next = NULL;
         c->prev = NULL;
@@ -942,16 +956,16 @@ updatetagmasteroffset(Monitor *m, int offset)
 
         // Only allow masteroffset adjustment if at least 2 tiling clients are present
         Tag *t = m->tag;
-        if (t->tclientnum < 2) return;
+        if (t->clientnum_tiling < 2) return;
 
         int halfwidth = m->width / 2;
-        int updatedmasteroffset = offset ? (t->masteroffset + offset) : 0;
+        int updatedmasteroffset = offset ? (t->master_offset + offset) : 0;
 
         // Do not adjust if masteroffset already too small/big
         if ((halfwidth + updatedmasteroffset) < 100) return;
         else if ((halfwidth + updatedmasteroffset) > (m->width - 100)) return;
 
-        t->masteroffset = updatedmasteroffset;
+        t->master_offset = updatedmasteroffset;
 }
 
 void
@@ -965,54 +979,65 @@ arrangemon(Monitor *m)
 {
         // Only arrange current focused Tag of the monitor
         Tag *t = m->tag;
-        if (!t->tclientnum) return;
+        if (!t->clientnum_tiling) return;
 
-        if (t->tclientnum == 1) t->masteroffset = 0;
+        if (t->clientnum_tiling == 1) t->master_offset = 0;
 
         XWindowChanges wc;
         // We have a fullscreen client on the tag
-        if (t->fsclient) {
-                t->fsclient->width = wc.width = m->width;
-                t->fsclient->height = wc.height = m->height;
-                t->fsclient->x = wc.x = m->x;
-                t->fsclient->y = wc.y = m->y;
+        if (t->client_fullscreen) {
+                t->client_fullscreen->width = wc.width = m->width;
+                t->client_fullscreen->height = wc.height = m->height;
+                t->client_fullscreen->x = wc.x = m->x;
+                t->client_fullscreen->y = wc.y = m->y;
 
-                XConfigureWindow(dpy, t->fsclient->win, CWX|CWY|CWWidth|CWHeight, &wc);
+                XConfigureWindow(
+                        dpy, t->client_fullscreen->win,
+                        CWX|CWY|CWWidth|CWHeight, &wc);
                 XSync(dpy, 0);
                 return;
         }
 
-        int borderoffset = borderwidth * 2;
-        int masterarea = (m->width / 2) + t->masteroffset;
-
-        // Get first client which is NOT a floating client
+        // Get first tiling client
         Client *fc = t->clients;
         for (; fc && fc->cf & CL_FLOAT; fc = fc->next);
         if (!fc) return;
 
-        fc->width = wc.width = ((t->tclientnum == 1) ? m->width : masterarea) - borderoffset;
-        fc->height = wc.height = m->height - statusbar.height - borderwidth - borderoffset;
+        int base_height = m->height - statusbar.height;
+        int border_offset = borderwidth * 2;
+        int master_area = (m->width / 2) + t->master_offset;
+
+        fc->width = wc.width = (t->clientnum_tiling == 1 ? m->width : master_area) - border_offset;
+        fc->height = wc.height = base_height - border_offset;
         fc->x = wc.x = m->x;
-        fc->y = wc.y = m->y + statusbar.height + borderwidth;
+        fc->y = wc.y = m->y + statusbar.height;
         XConfigureWindow(dpy, fc->win, CWY|CWX|CWWidth|CWHeight, &wc);
 
-        if (!fc->next || t->tclientnum == 1) {
+        if (!fc->next || t->clientnum_tiling == 1) {
                 XSync(dpy, 0);
                 return;
         }
 
+        // Get last tiling client
+        Client *lc = t->client_last;
+        for (; lc && lc->cf & CL_FLOAT; lc = lc->prev);
+
         // Draw rest of the clients to the right of the screen
-        int rightheight = (m->height - statusbar.height - borderwidth) / (t->tclientnum - 1);
-        int prevheight = fc->y;
+        int right_clients_num = t->clientnum_tiling - 1;
+        int right_height = base_height / right_clients_num;
+        int prev_y = fc->y;
         for (Client *c = fc->next; c; c = c->next) {
                 if (c->cf & CL_FLOAT) continue;
-                c->width = wc.width = m->width - masterarea - borderoffset;
-                c->height = wc.height = rightheight - borderoffset;
-                c->x = wc.x = masterarea + m->x;
-                c->y = wc.y = prevheight;
+                c->width = wc.width = m->width - master_area - border_offset;
+                c->height = wc.height = right_height - border_offset;
+                if (c == lc)
+                        c->height = wc.height = c->height +
+                            base_height - (right_height * right_clients_num);
+                c->x = wc.x = m->x + master_area;
+                c->y = wc.y = prev_y;
                 XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
 
-                prevheight += rightheight;
+                prev_y += right_height;
         }
 
         XSync(dpy, 0);
@@ -1022,8 +1047,11 @@ void
 grabkeys(void)
 {
         unsigned int modifiers[] = {0, LockMask, Mod2Mask, LockMask|Mod2Mask};
-        for (int i = 0; i < sizeof(keys)/sizeof(keys[0]); ++i)
-                for (int j = 0; j < sizeof(modifiers)/sizeof(modifiers[0]); ++j)
+        size_t keys_length = sizeof(keys)/sizeof(keys[0]);
+        size_t modifiers_length = sizeof(modifiers)/sizeof(modifiers[0]);
+
+        for (int i = 0; i < keys_length; ++i)
+                for (int j = 0; j < modifiers_length; ++j)
                         XGrabKey(
                                 dpy,
                                 XKeysymToKeycode(dpy, keys[i].keysym),
@@ -1039,7 +1067,7 @@ grabkeys(void)
 void
 key_updatemasteroffset(Arg *arg)
 {
-        if (selmon->tag->fsclient) return;
+        if (selmon->tag->client_fullscreen) return;
         updatetagmasteroffset(selmon, arg->i);
         arrangemon(selmon);
 }
@@ -1075,8 +1103,8 @@ key_fullscreen(Arg* arg)
         if (!selc) return;
 
         Tag *t = selc->tag;
-        if (!t->fsclient) setfullscreen(selc);
-        else if (t->fsclient == selc) unsetfullscreen(selc);
+        if (!t->client_fullscreen) setfullscreen(selc);
+        else if (t->client_fullscreen == selc) unsetfullscreen(selc);
         else return;
 
         remaptag(t);
@@ -1091,7 +1119,7 @@ key_mvwintomon(Arg *arg)
 
         Client *c = selc;
         Tag *t = c->tag;
-        if (t->fsclient) return;
+        if (t->client_fullscreen) return;
 
         // Target monitor to move window to
         Monitor *tm;
@@ -1100,7 +1128,7 @@ key_mvwintomon(Arg *arg)
         else return;
 
         if (tm == selmon) return;
-        if (tm->tag->fsclient) return;
+        if (tm->tag->client_fullscreen) return;
 
         // Move client (win) to target monitor
         mvwintomon(c, tm, NULL);
@@ -1115,7 +1143,7 @@ key_mvwintomon(Arg *arg)
         arrangemon(selmon);
 
         // Focus next client on current monitor/tag
-        focusclient(t->focusclients, true);
+        focusclient(t->clients_focus, true);
 }
 
 void
@@ -1127,7 +1155,7 @@ key_mvwintotag(Arg *arg)
 
         Client *c = selc;
         Tag *t = c->tag;
-        if (t->fsclient) return;
+        if (t->client_fullscreen) return;
 
         // Get tag to move the window to
         Tag *tm = selmon->tags + (arg->ui -1);
@@ -1146,7 +1174,7 @@ key_mvwintotag(Arg *arg)
         arrangemon(selmon);
 
         // Focus previous client
-        focusclient(t->focusclients, true);
+        focusclient(t->clients_focus, true);
 }
 
 void
@@ -1156,7 +1184,7 @@ key_followwintotag(Arg *arg)
         if (!selc) return;
 
         Tag *t = selc->tag;
-        if (t->fsclient) return;
+        if (t->client_fullscreen) return;
 
         int totag = t->num + arg->i;
         if (totag < 0) totag = (int) (tags_num - 1);
@@ -1175,7 +1203,7 @@ key_mvwin(Arg *arg)
 
         // Dont allow on fullscreen
         Tag *t = selc->tag;
-        if (t->fsclient) return;
+        if (t->client_fullscreen) return;
 
         // Client to move
         Client *ctm = selc;
@@ -1242,7 +1270,7 @@ key_cyclemon(Arg *arg)
         if (m == selmon) return;
 
         focusmon(m);
-        focusclient(m->tag->focusclients, true);
+        focusclient(m->tag->clients_focus, true);
         XSync(dpy, 0);
 }
 
@@ -1254,23 +1282,23 @@ key_cycleclient(Arg *arg)
 
         // Dont allow on fullscreen
         Tag *t = selc->tag;
-        if (t->fsclient) return;
+        if (t->client_fullscreen) return;
         if (t->clientnum < 2) return;
 
-        Client *tofocus = NULL;
+        // Client to focus
+        Client *c = NULL;
 
         if (arg->i == 1) {
                 // Focus to next element or to first in stack
-                tofocus = selc->next;
-                if (!tofocus) tofocus = t->clients;
+                c = selc->next;
+                if (!c) c = t->clients;
         } else {
                 // Focus to previous element or last in the stack
-                tofocus = selc->prev;
-                if (!tofocus)
-                        for (tofocus = selc; tofocus->next; tofocus = tofocus->next);
+                c = selc->prev;
+                if (!c) c = t->client_last;
         }
 
-        focusclient(tofocus, true);
+        focusclient(c, true);
 }
 
 void
@@ -1348,7 +1376,8 @@ createcolor(unsigned long color, Color *dst_color)
 
         // Set alpha bits of the pixel. No idea why XftColorAllocValue()
         // does not do this automatically...
-        dst_color->xft_color.pixel |= (unsigned long) (xrender_color.alpha >> 8) << 24;
+        dst_color->xft_color.pixel |=
+            (unsigned long) (xrender_color.alpha >> 8) << 24;
 }
 
 bool
@@ -1371,8 +1400,8 @@ setborders(Tag *t)
         if (t != t->mon->tag) return;
 
         // Do not set border when fullscreen client
-        if (t->fsclient) {
-                setborder(t->fsclient->win, 0, NULL);
+        if (t->client_fullscreen) {
+                setborder(t->client_fullscreen->win, 0, NULL);
                 return;
         }
 
@@ -1581,10 +1610,12 @@ updatemons(void)
                         destroymon(m, mons);
                 }
 
-                // Update masteroffset of tag because we could have more clients now
+                // Update masteroffset of tag because
+                // we could have more clients now
                 updatetagmasteroffset(mons, 0);
 
-                // Only map client of active tag within the first monitor (selmon/mons)
+                // Only map client of active tag within
+                // the first monitor (selmon/mons)
                 for (int i = 0; i < tags_num; ++i) remaptag(mons->tags + i);
                 mons->bartags[mons->tag->num * 2] = '>';
         }
@@ -1682,7 +1713,9 @@ setup(void)
         XSelectInput(
                 dpy,
                 root,
-                SubstructureRedirectMask|SubstructureNotifyMask|StructureNotifyMask|KeyPressMask|PropertyChangeMask|EnterWindowMask);
+                SubstructureRedirectMask|SubstructureNotifyMask|
+                    StructureNotifyMask|KeyPressMask|
+                    PropertyChangeMask|EnterWindowMask);
         XSync(dpy, 0);
 
         // Set the error handler
