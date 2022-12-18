@@ -198,6 +198,8 @@ void    focusclient(Client*, bool);
 void    focus(Window, Client*, bool);
 void    arrange(void);
 void    arrangemon(Monitor*);
+void    set_window_size(Window, int, int, int, int);
+void    set_client_size(Client*, int, int, int, int);
 
 void    updatebars(void);
 void    updatestatustext(void);
@@ -417,12 +419,7 @@ configurenotify(XEvent *e)
 
         // Update statusbar to new width of combined monitors
         statusbar.width = sw;
-        XWindowChanges wc = {
-                .width = statusbar.width,
-                .height = statusbar.height,
-                .y = 0,
-                .x = 0};
-        XConfigureWindow(dpy, statusbar.win, CWX|CWY|CWWidth|CWHeight, &wc);
+        set_window_size(statusbar.win, statusbar.width, statusbar.height, 0, 0);
         updatebars();
 
         focusclient(selmon->tag->clients_focus, true);
@@ -442,20 +439,17 @@ configurerequest(XEvent *e)
 {
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
-        // Only allow custom sizes for dialog windows
-        Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
-        if (wintype != net_win_types[NET_UTIL] &&
-            wintype != net_win_types[NET_DIALOG])
-                return;
+        // Only allow custom sizes for floating windows or dialogs
+        Client *c = wintoclient(ev->window);
+        if (c && !(c->cf & CL_FLOAT)) return;
+        else if (!c) {
+                Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
+                if (wintype != net_win_types[NET_UTIL] &&
+                    wintype != net_win_types[NET_DIALOG])
+                        return;
+        }
 
-        XWindowChanges wc;
-
-        wc.x = ev->x;
-        wc.y = ev->y;
-        wc.width = ev->width;
-        wc.height = ev->height;
-
-        XConfigureWindow(dpy, ev->window, (unsigned int)ev->value_mask, &wc);
+        set_window_size(ev->window, ev->width, ev->height, ev->x, ev->y);
 }
 
 void
@@ -667,6 +661,7 @@ setfullscreen(Client *c)
         c->tag->client_fullscreen = c;
         XRaiseWindow(dpy, c->win);
         setborders(c->tag);
+        XSync(dpy, 0);
 }
 
 void
@@ -681,6 +676,7 @@ unsetfullscreen(Client *c)
                 net_atoms[NET_STATE]);
         c->tag->client_fullscreen = NULL;
         setborders(c->tag);
+        XSync(dpy, 0);
 }
 
 void
@@ -969,6 +965,32 @@ updatetagmasteroffset(Monitor *m, int offset)
 }
 
 void
+set_window_size(Window w, int width, int height, int x, int y)
+{
+        if (!w) return;
+
+        XWindowChanges wc = {
+                .width = width,
+                .height = height,
+                .x = x,
+                .y = y};
+        XConfigureWindow(dpy, w, CWX|CWY|CWWidth|CWHeight, &wc);
+}
+
+void
+set_client_size(Client *c, int width, int height, int x, int y)
+{
+        if (!c) return;
+
+        c->width = width;
+        c->height = height;
+        c->x = x;
+        c->y = y;
+
+        set_window_size(c->win, width, height, x, y);
+}
+
+void
 arrange(void)
 {
         for (Monitor *m = mons; m; m = m->next) arrangemon(m);
@@ -979,24 +1001,22 @@ arrangemon(Monitor *m)
 {
         // Only arrange current focused Tag of the monitor
         Tag *t = m->tag;
-        if (!t->clientnum_tiling) return;
+        if (!t->clientnum) return;
 
-        if (t->clientnum_tiling == 1) t->master_offset = 0;
-
-        XWindowChanges wc;
         // We have a fullscreen client on the tag
         if (t->client_fullscreen) {
-                t->client_fullscreen->width = wc.width = m->width;
-                t->client_fullscreen->height = wc.height = m->height;
-                t->client_fullscreen->x = wc.x = m->x;
-                t->client_fullscreen->y = wc.y = m->y;
-
-                XConfigureWindow(
-                        dpy, t->client_fullscreen->win,
-                        CWX|CWY|CWWidth|CWHeight, &wc);
+                set_window_size(
+                        t->client_fullscreen->win,
+                        m->width,
+                        m->height,
+                        m->x,
+                        m->y);
                 XSync(dpy, 0);
                 return;
         }
+
+        if (t->clientnum_tiling == 0) return;
+        if (t->clientnum_tiling == 1) t->master_offset = 0;
 
         // Get first tiling client
         Client *fc = t->clients;
@@ -1007,11 +1027,13 @@ arrangemon(Monitor *m)
         int border_offset = borderwidth * 2;
         int master_area = (m->width / 2) + t->master_offset;
 
-        fc->width = wc.width = (t->clientnum_tiling == 1 ? m->width : master_area) - border_offset;
-        fc->height = wc.height = base_height - border_offset;
-        fc->x = wc.x = m->x;
-        fc->y = wc.y = m->y + statusbar.height;
-        XConfigureWindow(dpy, fc->win, CWY|CWX|CWWidth|CWHeight, &wc);
+        // Set size of first tiling client
+        set_client_size(
+                fc,
+                (t->clientnum_tiling == 1 ? m->width : master_area) - border_offset,
+                base_height - border_offset,
+                m->x,
+                m->y + statusbar.height);
 
         if (!fc->next || t->clientnum_tiling == 1) {
                 XSync(dpy, 0);
@@ -1023,21 +1045,25 @@ arrangemon(Monitor *m)
         for (; lc && lc->cf & CL_FLOAT; lc = lc->prev);
 
         // Draw rest of the clients to the right of the screen
-        int right_clients_num = t->clientnum_tiling - 1;
-        int right_height = base_height / right_clients_num;
         int prev_y = fc->y;
+        // sa = stack area
+        int sa_clientnum = t->clientnum_tiling - 1;
+        int sa_client_x = m->x + master_area;
+        int sa_client_width = m->width - master_area - border_offset;
+        int sa_client_height = base_height / sa_clientnum;
+        int sa_client_render_height = sa_client_height - border_offset;
+        int sa_client_last_height = sa_client_render_height +
+            base_height - (sa_client_height * sa_clientnum);
         for (Client *c = fc->next; c; c = c->next) {
                 if (c->cf & CL_FLOAT) continue;
-                c->width = wc.width = m->width - master_area - border_offset;
-                c->height = wc.height = right_height - border_offset;
-                if (c == lc)
-                        c->height = wc.height = c->height +
-                            base_height - (right_height * right_clients_num);
-                c->x = wc.x = m->x + master_area;
-                c->y = wc.y = prev_y;
-                XConfigureWindow(dpy, c->win, CWY|CWX|CWWidth|CWHeight, &wc);
+                set_client_size(
+                        c,
+                        sa_client_width,
+                        c == lc ? sa_client_last_height : sa_client_render_height,
+                        sa_client_x,
+                        prev_y);
 
-                prev_y += right_height;
+                prev_y += sa_client_height;
         }
 
         XSync(dpy, 0);
