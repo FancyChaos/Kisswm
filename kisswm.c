@@ -1566,10 +1566,11 @@ updatemons(void)
 
         int monitornum = 0;
         bool overlaying = false;
-        // We assume we ALWAYS have one monitor
+
         Monitor *m = mons;
         selmon = m;
         lastmon = m;
+
         for (int n = 0; n < mn; ++n) {
                 // ignore overlaying monitor
                 overlaying = false;
@@ -1589,13 +1590,12 @@ updatemons(void)
                         updatetagmasteroffset(m, 0);
                 }
                 // Change bartags accordingly
-                m->snum = monitornum;
+                m->snum = monitornum++;
                 snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
                 m->bartags[m->tag->num * 2] = n ? '^' : '>';
 
                 lastmon = m;
                 m = m->next;
-                ++monitornum;
         }
         lastmon->next = NULL;
         currentmonnum = monitornum;
@@ -1606,7 +1606,8 @@ updatemons(void)
                 // Move any window to the first mon
                 for (Monitor *nm = m; nm; m = nm) {
                         nm = m->next;
-                        destroymon(m, mons);
+                        // Never destroy first monitor
+                        if (m != mons) destroymon(m, mons);
                 }
 
                 // Update masteroffset of tag because
@@ -1627,15 +1628,15 @@ void
 destroymon(Monitor *m, Monitor *tm)
 {
         // Destroy monitor and move clients
-        // to different monitor if wished
-        if (tm && tm != m) {
-                for (int i = 0; i < tags_num; ++i) {
-                        Client *nc = NULL;
-                        for (Client *c = m->tags[i].clients; c; c = nc) {
-                                nc = c->next;
-                                mvwintomon(c, tm, tm->tags + i);
-                                tm->bartags[i * 2] = '*';
-                        }
+        // to different one
+        if (!m || !tm || tm == m) return;
+
+        for (int i = 0; i < tags_num; ++i) {
+                Client *nc = NULL;
+                for (Client *c = m->tags[i].clients; c; c = nc) {
+                        nc = c->next;
+                        mvwintomon(c, tm, tm->tags + i);
+                        tm->bartags[i * 2] = '*';
                 }
         }
 
