@@ -1205,41 +1205,40 @@ key_mvwin(Arg *arg)
         Tag *t = selc->tag;
         if (t->client_fullscreen) return;
 
-        // Client to move
-        Client *ctm = selc;
-
         if (arg->i == 1) {
                 // Move to right
-                if (!ctm->next) return;
+                if (!selc->next) return;
 
-                // Client to switch
-                Client *cts = ctm->next;
+                // Client to switch with
+                Client *cs = selc->next;
 
-                if (ctm->prev) ctm->prev->next = cts;
-                if (cts->next) cts->next->prev = ctm;
+                if (selc->prev) selc->prev->next = cs;
+                if (cs->next) cs->next->prev = selc;
 
-                ctm->next = cts->next;
-                cts->prev = ctm->prev;
-                ctm->prev = cts;
-                cts->next = ctm;
+                selc->next = cs->next;
+                cs->prev = selc->prev;
+                selc->prev = cs;
+                cs->next = selc;
 
-                if (ctm == t->clients) t->clients = cts;
+                if (!selc->next) t->client_last = selc;
+                if (selc == t->clients) t->clients = cs;
         } else {
                 // Move to left
-                if (!ctm->prev) return;
+                if (!selc->prev) return;
 
-                // Client to switch
-                Client *cts = ctm->prev;
+                // Client to switch with
+                Client *cs = selc->prev;
 
-                if (ctm->next) ctm->next->prev = cts;
-                if (cts->prev) cts->prev->next = ctm;
+                if (selc->next) selc->next->prev = cs;
+                if (cs->prev) cs->prev->next = selc;
 
-                ctm->prev = cts->prev;
-                cts->next = ctm->next;
-                ctm->next = cts;
-                cts->prev = ctm;
+                selc->prev = cs->prev;
+                cs->next = selc->next;
+                selc->next = cs;
+                cs->prev = selc;
 
-                if (cts == t->clients) t->clients = ctm;
+                if (!cs->next) t->client_last = cs;
+                if (cs == t->clients) t->clients = selc;
         }
 
         arrangemon(selmon);
