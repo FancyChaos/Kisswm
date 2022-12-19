@@ -439,17 +439,23 @@ configurerequest(XEvent *e)
 {
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
-        // Only allow custom sizes for floating windows or dialogs
-        Client *c = wintoclient(ev->window);
-        if (c && !(c->cf & CL_FLOAT)) return;
-        else if (!c) {
-                Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
-                if (wintype != net_win_types[NET_UTIL] &&
-                    wintype != net_win_types[NET_DIALOG])
-                        return;
-        }
+        // Only allow custom sizes for dialog windows
+        Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
+        if (wintype != net_win_types[NET_UTIL] &&
+            wintype != net_win_types[NET_DIALOG])
+                return;
 
-        set_window_size(ev->window, ev->width, ev->height, ev->x, ev->y);
+        XWindowChanges wc;
+
+        wc.x = ev->x;
+        wc.y = ev->y;
+        wc.width = ev->width;
+        wc.height = ev->height;
+        wc.sibling = ev->above;
+        wc.stack_mode = ev->detail;
+        XConfigureWindow(dpy, ev->window, (unsigned int) ev->value_mask, &wc);
+
+        XSync(dpy, 0);
 }
 
 void
@@ -1016,7 +1022,6 @@ arrangemon(Monitor *m)
         }
 
         if (t->clientnum_tiling == 0) return;
-        if (t->clientnum_tiling == 1) t->master_offset = 0;
 
         // Get first tiling client
         Client *fc = t->clients;
@@ -1025,7 +1030,8 @@ arrangemon(Monitor *m)
 
         int base_height = m->height - statusbar.height;
         int border_offset = borderwidth * 2;
-        int master_area = (m->width / 2) + t->master_offset;
+        int master_area = (m->width / 2);
+        master_area += t->clientnum_tiling == 1 ? 0 : t->master_offset;
 
         // Set size of first tiling client
         set_client_size(
