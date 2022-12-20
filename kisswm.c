@@ -36,7 +36,7 @@ enum {
 enum client_flags {
         CL_URGENT = 1 << 0,
         CL_DIALOG = 1 << 1,
-        CL_FLOAT = 1 << 2
+        CL_MANAGED = 1 << 2
 };
 
 typedef union {
@@ -114,8 +114,7 @@ struct Tag {
         int num;
         // Client counters
         int clientnum;
-        int clientnum_tiling;
-        int clientnum_floating;
+        int clientnum_managed;
         // Assigned monitor
         Monitor *mon;
         // Assigned layout
@@ -388,13 +387,15 @@ maprequest(XEvent *e)
         c->win = ev->window;
         c->mon = selmon;
         c->tag = ct;
-        c->cf = 0;
+        c->cf = CL_MANAGED;
 
-        // Set floating if dialog
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
         if (net_win_types[NET_UTIL] == wintype ||
             net_win_types[NET_DIALOG] == wintype) {
-                c->cf |= CL_DIALOG|CL_FLOAT;
+                // Set dialog flag
+                c->cf |= CL_DIALOG;
+                // unset managed flag
+                c->cf &= ~(CL_MANAGED);
         }
 
         attach(c);
@@ -460,11 +461,17 @@ configurerequest(XEvent *e)
 {
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
-        // Only allow custom sizes for dialog windows
+        bool is_dialog = false;
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
-        if (wintype != net_win_types[NET_UTIL] &&
-            wintype != net_win_types[NET_DIALOG])
-                return;
+        if (wintype == net_win_types[NET_UTIL] ||
+            wintype == net_win_types[NET_DIALOG])
+                is_dialog = true;
+
+        if (!is_dialog) {
+                Client *c = wintoclient(ev->window);
+                // Do not allow custom sizes when a layout is enabled
+                if (!c || c->tag->layout->f) return;
+        }
 
         XWindowChanges wc;
 
@@ -921,9 +928,8 @@ detach(Client *c)
         Tag *t = c->tag;
         if (!t) return;
 
-        t->clientnum -= 1;
-        if (c->cf & CL_FLOAT) t->clientnum_floating -= 1;
-        else t->clientnum_tiling -= 1;
+        if (c->cf & CL_MANAGED) --t->clientnum_managed;
+        --t->clientnum;
 
         // If this was the last open client on the tag
         if (t->clientnum == 0) {
@@ -950,9 +956,8 @@ attach(Client *c)
         Tag *t = c->tag;
         if (!t) return;
 
-        t->clientnum += 1;
-        if (c->cf & CL_FLOAT) t->clientnum_floating += 1;
-        else t->clientnum_tiling += 1;
+        if (c->cf & CL_MANAGED) ++t->clientnum_managed;
+        ++t->clientnum;
 
         t->client_last = c;
 
@@ -976,10 +981,9 @@ updatetagmasteroffset(Monitor *m, int offset)
 {
         if (!m) return;
 
-        // Only allow masteroffset adjustment if at least 2 tiling clients are present
         Tag *t = m->tag;
         if (t->layout->f != MASTER_STACK_LAYOUT) return;
-        if (t->clientnum_tiling < 2) return;
+        if (t->clientnum_managed < 2) return;
 
         int halfwidth = m->width / 2;
         int updatedmasteroffset = offset ? (t->layout->meta.master_offset + offset) : 0;
@@ -1028,7 +1032,7 @@ arrangemon(Monitor *m)
 {
         // Only arrange current focused Tag of the monitor
         Tag *t = m->tag;
-        if (!t->clientnum) return;
+        if (t->clientnum_managed == 0) return;
 
         // We have a fullscreen client on the tag
         if (t->client_fullscreen) {
@@ -1079,7 +1083,7 @@ key_change_layout(Arg* arg)
 
         t->layout->f = layouts_available[t->layout->index];
 
-        if (t->clientnum) arrangemon(selmon);
+        if (t->clientnum_managed) arrangemon(selmon);
 
         XSync(dpy, 0);
 }
