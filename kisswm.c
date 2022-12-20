@@ -71,6 +71,19 @@ typedef struct Client Client;
 typedef struct Tag Tag;
 typedef struct Colors Colors;
 typedef struct Statusbar Statusbar;
+typedef struct Layout Layout;
+typedef struct Layout_Meta Layout_Meta;
+typedef void (*Layout_Func) (Monitor*, Layout_Meta*);
+
+struct Layout_Meta {
+        int master_offset;
+};
+
+struct Layout {
+        Layout_Meta meta;
+        Layout_Func f;
+        size_t index;
+};
 
 struct Statusbar {
         Window win;
@@ -103,10 +116,10 @@ struct Tag {
         int clientnum;
         int clientnum_tiling;
         int clientnum_floating;
-        // Layout offset
-        int master_offset;
         // Assigned monitor
         Monitor *mon;
+        // Assigned layout
+        Layout *layout;
         // Clients
         Client *clients;
         Client *client_last;
@@ -131,6 +144,10 @@ struct Monitor {
         int width;
 };
 
+void    MASTER_STACK_LAYOUT(Monitor*, Layout_Meta*);
+void    SIDE_BY_SIDE_LAYOUT(Monitor*, Layout_Meta*);
+void    STACK_LAYOUT(Monitor*, Layout_Meta*);
+
 void    key_spawn(Arg*);
 void    key_mvwintotag(Arg*);
 void    key_mvwintomon(Arg*);
@@ -143,6 +160,7 @@ void    key_cycleclient(Arg*);
 void    key_cyclemon(Arg*);
 void    key_killclient(Arg*);
 void    key_updatemasteroffset(Arg*);
+void    key_change_layout(Arg*);
 
 void    keypress(XEvent*);
 void    configurenotify(XEvent*);
@@ -218,8 +236,6 @@ void (*handler[LASTEvent])(XEvent*) = {
         [EnterNotify] = enternotify
 };
 
-#include "kisswm.h"
-
 Atom ATOM_UTF8;
 Atom icccm_atoms[ICCCM_END];
 Atom net_atoms[NET_END];
@@ -241,9 +257,14 @@ int sw;
 int currentmonnum;
 long long monupdatetime = 0;
 
-unsigned int tags_num = sizeof(tags)/sizeof(tags[0]);
-
 char barstatus[256];
+
+// Include of layouts and custom settings at the end
+#include "kisswm.h"
+#include "layouts.c"
+
+size_t tags_num = sizeof(tags)/sizeof(tags[0]);
+size_t layouts_num = sizeof(layouts_available)/sizeof(layouts_available[0]);
 
 
 /*** X11 Eventhandling ****/
@@ -528,8 +549,7 @@ drawbar(Monitor *m)
                 (XftChar8 *) m->bartags,
                 bartagslen,
                 &xglyph);
-        int baroffset = statusbar.height - ((statusbar.height - xglyph.y) / 2);
-        if (baroffset < 0) baroffset = xglyph.y;
+        int baroffset = xglyph.y + ((statusbar.height - xglyph.height) / 2);
 
         // Draw statusbartags text
         XftDrawStringUtf8(
@@ -958,16 +978,17 @@ updatetagmasteroffset(Monitor *m, int offset)
 
         // Only allow masteroffset adjustment if at least 2 tiling clients are present
         Tag *t = m->tag;
+        if (t->layout->f != MASTER_STACK_LAYOUT) return;
         if (t->clientnum_tiling < 2) return;
 
         int halfwidth = m->width / 2;
-        int updatedmasteroffset = offset ? (t->master_offset + offset) : 0;
+        int updatedmasteroffset = offset ? (t->layout->meta.master_offset + offset) : 0;
 
         // Do not adjust if masteroffset already too small/big
         if ((halfwidth + updatedmasteroffset) < 100) return;
         else if ((halfwidth + updatedmasteroffset) > (m->width - 100)) return;
 
-        t->master_offset = updatedmasteroffset;
+        t->layout->meta.master_offset = updatedmasteroffset;
 }
 
 void
@@ -1021,57 +1042,7 @@ arrangemon(Monitor *m)
                 return;
         }
 
-        if (t->clientnum_tiling == 0) return;
-
-        // Get first tiling client
-        Client *fc = t->clients;
-        for (; fc && fc->cf & CL_FLOAT; fc = fc->next);
-        if (!fc) return;
-
-        int base_height = m->height - statusbar.height;
-        int border_offset = borderwidth * 2;
-        int master_area = (m->width / 2);
-        master_area += t->clientnum_tiling == 1 ? 0 : t->master_offset;
-
-        // Set size of first tiling client
-        set_client_size(
-                fc,
-                (t->clientnum_tiling == 1 ? m->width : master_area) - border_offset,
-                base_height - border_offset,
-                m->x,
-                m->y + statusbar.height);
-
-        if (!fc->next || t->clientnum_tiling == 1) {
-                XSync(dpy, 0);
-                return;
-        }
-
-        // Get last tiling client
-        Client *lc = t->client_last;
-        for (; lc && lc->cf & CL_FLOAT; lc = lc->prev);
-
-        // Draw rest of the clients to the right of the screen
-        int prev_y = fc->y;
-        // sa = stack area
-        int sa_clientnum = t->clientnum_tiling - 1;
-        int sa_client_x = m->x + master_area;
-        int sa_client_width = m->width - master_area - border_offset;
-        int sa_client_height = base_height / sa_clientnum;
-        int sa_client_render_height = sa_client_height - border_offset;
-        int sa_client_last_height = sa_client_render_height +
-            base_height - (sa_client_height * sa_clientnum);
-        for (Client *c = fc->next; c; c = c->next) {
-                if (c->cf & CL_FLOAT) continue;
-                set_client_size(
-                        c,
-                        sa_client_width,
-                        c == lc ? sa_client_last_height : sa_client_render_height,
-                        sa_client_x,
-                        prev_y);
-
-                prev_y += sa_client_height;
-        }
-
+        if (t->layout->f) t->layout->f(m, &(t->layout->meta));
         XSync(dpy, 0);
 }
 
@@ -1095,6 +1066,23 @@ grabkeys(void)
 }
 
 /*** Keybinding fuctions ***/
+
+void
+key_change_layout(Arg* arg)
+{
+        Tag *t = selmon->tag;
+        if (t->client_fullscreen) return;
+
+        // Set new layout index
+        t->layout->index =
+            ((t->layout->index + 1) == layouts_num) ? 0 : t->layout->index + 1;
+
+        t->layout->f = layouts_available[t->layout->index];
+
+        if (t->clientnum) arrangemon(selmon);
+
+        XSync(dpy, 0);
+}
 
 void
 key_updatemasteroffset(Arg *arg)
@@ -1673,9 +1661,11 @@ destroymon(Monitor *m, Monitor *tm)
         }
 
         m->prev = m->next = NULL;
-        XFree(m->aname);
+        for (int i = 0; i < tags_num; ++i)
+                free(m->tags[i].layout);
         free(m->tags);
         free(m->bartags);
+        XFree(m->aname);
         free(m);
 }
 
@@ -1694,6 +1684,9 @@ createmon(XRRMonitorInfo *info)
         for (int i = 0; i < tags_num; ++i) {
                 m->tags[i].mon = m;
                 m->tags[i].num = i;
+                m->tags[i].layout = (Layout*) ecalloc(sizeof(Layout), 1);
+                m->tags[i].layout->f = layouts_available[0];
+                m->tags[i].layout->index = 0;
         }
         m->tag = m->tags;
 

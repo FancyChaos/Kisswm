@@ -4,14 +4,23 @@ static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=18:antialia
 static const char *barfont       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
 
 static int barheight = 26;
-static int borderwidth = 3;
+static int borderwidth = 2;
 
 // Colors in RGB representation (alpha, red, green, blue)
 static unsigned long barbg = 0;
 static unsigned long barfg = 0xFFFAEBD7;
 static unsigned long bordercolor = 0xFFFAEBD7;
-static unsigned long bordercolor_inactive = 0xFF6F6C69;
+static unsigned long bordercolor_inactive = 0xC56F6C69;
 static unsigned long bordercolor_urgent = 0xFFCC3333;
+
+// Usable layouts:
+// MASTER_STACK_LAYOUT, SIDE_BY_SIDE_LAYOUT,
+// STACK_LAYOUT, NULL (For future floating only mode)
+static Layout_Func layouts_available[] = {
+    MASTER_STACK_LAYOUT,
+    SIDE_BY_SIDE_LAYOUT,
+    STACK_LAYOUT
+};
 
 static const char *term[] = {"st", NULL};
 static const char *lock[] = {"fxlock", NULL};
@@ -58,6 +67,8 @@ Key keys[] = {
 
         { MODKEY,                     XK_h,                   key_updatemasteroffset,     {.i = -50} },
         { MODKEY,                     XK_l,                   key_updatemasteroffset,     {.i = 50} },
+
+        { MODKEY,                     XK_m,                   key_change_layout,          {0} },
 
         /* Tag keys */
         TAGKEYS(                      XK_1,                                           1)
