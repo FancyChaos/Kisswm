@@ -187,7 +187,6 @@ void    destroymon(Monitor*, Monitor*);
 void    setup(void);
 void    initmons(void);
 void    grabkeys(void);
-bool    alreadymapped(Window);
 Atom    getwinprop(Window, Atom);
 Client *wintoclient(Window);
 bool    sendevent(Window, Atom);
@@ -373,7 +372,7 @@ void
 maprequest(XEvent *e)
 {
         XMapRequestEvent *ev = &e->xmaprequest;
-        if (alreadymapped(ev->window)) return;
+        if (wintoclient(ev->window)) return;
 
         XWindowAttributes wa;
         if (!XGetWindowAttributes(dpy, ev->window, &wa)) return;
@@ -1011,7 +1010,7 @@ set_window_size(Window w, int width, int height, int x, int y)
 void
 set_client_size(Client *c, int width, int height, int x, int y)
 {
-        if (!c) return;
+        if (!c || !(c->cf & CL_MANAGED)) return;
 
         c->width = width;
         c->height = height;
@@ -1036,8 +1035,8 @@ arrangemon(Monitor *m)
 
         // We have a fullscreen client on the tag
         if (t->client_fullscreen) {
-                set_window_size(
-                        t->client_fullscreen->win,
+                set_client_size(
+                        t->client_fullscreen,
                         m->width,
                         m->height,
                         m->x,
@@ -1403,19 +1402,6 @@ createcolor(unsigned long color, Color *dst_color)
             (unsigned long) (xrender_color.alpha >> 8) << 24;
 }
 
-bool
-alreadymapped(Window w)
-{
-        // Checks if the window of MapRequest is already mapped (a client)
-        // A specific application was observed to have that behavior
-        for (Monitor *m = mons; m; m = m->next)
-                for (int i = 0; i < tags_num; ++i)
-                        for (Client *c = m->tags[i].clients; c; c = c->next)
-                                if (c->win == w)
-                                        return true;
-        return false;
-}
-
 void
 setborders(Tag *t)
 {
@@ -1521,11 +1507,9 @@ sendevent(Window w, Atom prot)
 Client*
 wintoclient(Window w)
 {
-        Monitor *m;
-        Client *c;
-        for (m = mons; m; m = m->next)
+        for (Monitor *m = mons; m; m = m->next)
                 for (int i = 0; i < tags_num; ++i)
-                        for (c = m->tags[i].clients; c; c = c->next)
+                        for (Client *c = m->tags[i].clients; c; c = c->next)
                                 if (c->win == w)
                                         return c;
 
