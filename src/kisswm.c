@@ -259,7 +259,7 @@ char barstatus[256];
 
 // Include of layouts and custom settings at the end
 #include "kisswm.h"
-#include "layouts.c"
+#include "layouts.h"
 
 size_t tags_num = sizeof(tags)/sizeof(tags[0]);
 size_t layouts_num = sizeof(layouts_available)/sizeof(layouts_available[0]);

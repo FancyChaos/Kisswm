@@ -1,4 +1,5 @@
 kisswm
+config.h
+obj/
 *.core
-*.o
 todo

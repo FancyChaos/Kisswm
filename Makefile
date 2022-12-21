@@ -1,15 +1,31 @@
 include config.mk
 
-all: kisswm
+SRC_DIR := src
+OBJ_DIR := obj
 
-kisswm: kisswm.o util.o
-	$(CC) kisswm.o util.o -o kisswm $(LIBS)
+EXE := kisswm
 
-kisswm.o: kisswm.c kisswm.h layouts.c
-	$(CC) -c kisswm.c $(CFLAGS)
+CONF_DEFAULT := $(SRC_DIR)/$(EXE).h
+CONF_CUSTOM := config.h
 
-util.o: util.c util.h
-	$(CC) -c util.c $(CFLAGS)
+SRC := $(wildcard $(SRC_DIR)/*.c)
+OBJ := $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
+
+all: $(EXE)
+
+$(EXE): $(OBJ)
+	$(CC) $^ $(LIBS) -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c config | $(OBJ_DIR)
+	mv $(CONF_DEFAULT) $(CONF_DEFAULT).default
+	cp $(CONF_CUSTOM) $(CONF_DEFAULT)
+	$(CC) $(CFLAGS) -c $< -o $@ ; mv $(CONF_DEFAULT).default $(CONF_DEFAULT)
+
+$(OBJ_DIR):
+	mkdir -p $@
+
+config:
+	test -f $(CONF_CUSTOM) || cp $(CONF_DEFAULT) $(CONF_CUSTOM)
 
 install: kisswm
 	rm $(DESTDIR)$(PREFIX)/bin/kisswm || true
@@ -21,6 +37,8 @@ uninstall:
 	rm -rf $(DESTDIR)$(PREFIX)/bin/kisswm
 
 clean:
-	rm -f *.o kisswm *.core
+	@$(RM) -rv $(EXE) $(OBJ_DIR)
+
+-include $(OBJ:.o=.d)
 
 .PHONY: all install uninstall clean
