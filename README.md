@@ -3,8 +3,9 @@
 **Kisswm** is a dead simple tiling window manager inspired a lot
 by [DWM](https://dwm.suckless.org/).
 
-It features basic ICCM/EWMH compliance, common navigation functionalities, Multi-monitor support
-and multiple tiling layouts switchable per tag.
+It features basic ICCM/EWMH compliance, common navigation
+functionalities, Multi-monitor support and
+multiple tiling layouts switchable per tag.
 
 ## Configuration
 
@@ -12,6 +13,8 @@ The configuration is solely done inside *config.h* which is a copy
 of the default *kisswm.h* file.
 
 ## Installation
+
+Use *gmake* on OpenBSD to compile kisswm.
 
 > make config
 

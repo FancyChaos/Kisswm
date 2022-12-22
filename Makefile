@@ -11,27 +11,29 @@ CONF_CUSTOM := config.h
 SRC := $(wildcard $(SRC_DIR)/*.c)
 OBJ := $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
-all: $(EXE)
+all: config $(EXE)
+	mv $(CONF_DEFAULT).default $(CONF_DEFAULT)
 
 $(EXE): $(OBJ)
 	$(CC) $^ $(LIBS) -o $@
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c config | $(OBJ_DIR)
-	mv $(CONF_DEFAULT) $(CONF_DEFAULT).default
-	cp $(CONF_CUSTOM) $(CONF_DEFAULT)
-	$(CC) $(CFLAGS) -c $< -o $@ ; mv $(CONF_DEFAULT).default $(CONF_DEFAULT)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJ_DIR):
 	mkdir -p $@
 
 config:
 	test -f $(CONF_CUSTOM) || cp $(CONF_DEFAULT) $(CONF_CUSTOM)
+	test -f $(CONF_DEFAULT).default || mv $(CONF_DEFAULT) $(CONF_DEFAULT).default
+	cp $(CONF_CUSTOM) $(CONF_DEFAULT)
 
-install: kisswm
-	rm $(DESTDIR)$(PREFIX)/bin/kisswm || true
+install:
+	test -f $(EXE)
+	rm $(DESTDIR)$(PREFIX)/bin/$(EXE) || true
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp kisswm $(DESTDIR)$(PREFIX)/bin
-	chmod 755 $(DESTDIR)$(PREFIX)/bin/kisswm
+	chmod 755 $(DESTDIR)$(PREFIX)/bin/$(EXE)
 
 uninstall:
 	rm -rf $(DESTDIR)$(PREFIX)/bin/kisswm
