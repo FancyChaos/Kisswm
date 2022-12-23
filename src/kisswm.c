@@ -388,22 +388,23 @@ maprequest(XEvent *e)
         c->tag = ct;
         c->cf = CL_MANAGED;
 
+        c->width = wa.width;
+        c->height = wa.height;
+        c->x = wa.x;
+        c->y = wa.y;
+
         Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
         if (net_win_types[NET_UTIL] == wintype ||
             net_win_types[NET_DIALOG] == wintype) {
                 // Set dialog flag
                 c->cf |= CL_DIALOG;
                 // unset managed flag
-                c->cf &= ~(CL_MANAGED);
+                c->cf &= ~CL_MANAGED;
         }
 
         attach(c);
         focusattach(c);
 
-        // Already arrange monitor before new window is mapped
-        // This will reduce flicker of client
-        if (c->tag->client_fullscreen)
-                unsetfullscreen(c->tag->client_fullscreen);
         arrangemon(c->mon);
         remaptag(c->tag);
 
@@ -460,24 +461,28 @@ configurerequest(XEvent *e)
 {
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
-        bool is_dialog = false;
-        Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
-        if (wintype == net_win_types[NET_UTIL] ||
-            wintype == net_win_types[NET_DIALOG])
-                is_dialog = true;
-
-        if (!is_dialog) {
-                Client *c = wintoclient(ev->window);
-                // Do not allow custom sizes when a layout is enabled
-                if (!c || c->tag->layout->f) return;
-        }
-
         XWindowChanges wc;
 
-        wc.x = ev->x;
-        wc.y = ev->y;
-        wc.width = ev->width;
-        wc.height = ev->height;
+        Client *c = wintoclient(ev->window);
+        if (c) {
+                // Do not allow custom sizes when a layout is enabled
+                // Still allow for dialog windows
+                if (c->tag->layout->f && !(c->cf & CL_DIALOG)) return;
+                c->x = wc.x = ev->x;
+                c->y = wc.y = ev->y;
+                c->width = wc.width = ev->width;
+                c->height = wc.height = ev->height;
+        } else {
+                Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
+                if (wintype != net_win_types[NET_UTIL] &&
+                    wintype != net_win_types[NET_DIALOG])
+                        return;
+                wc.x = ev->x;
+                wc.y = ev->y;
+                wc.width = ev->width;
+                wc.height = ev->height;
+        }
+
         wc.sibling = ev->above;
         wc.stack_mode = ev->detail;
         XConfigureWindow(dpy, ev->window, (unsigned int) ev->value_mask, &wc);
@@ -678,7 +683,7 @@ void
 setfullscreen(Client *c)
 {
         // Already in fullscreen
-        if (!c || c->tag->client_fullscreen || c->cf & CL_DIALOG) return;
+        if (!c || c->tag->client_fullscreen || !(c->cf & CL_MANAGED)) return;
 
         // Set fullscreen property
         XChangeProperty(
@@ -699,9 +704,10 @@ setfullscreen(Client *c)
 void
 unsetfullscreen(Client *c)
 {
-        if (!c) return;
+        if (!c || c->tag->client_fullscreen != c) return;
 
-        // Set fullscreen property
+
+        // Delete fullscreen property
         XDeleteProperty(
                 dpy,
                 c->win,
@@ -893,8 +899,8 @@ focusattach(Client *c)
         Tag *t = c->tag;
         if (!t) return;
 
-        // Reset fullscreen if not dialog
-        if (!(c->cf & CL_DIALOG)) unsetfullscreen(c->tag->client_fullscreen);
+        // Reset fullscreen if managed client
+        if (c->cf & CL_MANAGED) unsetfullscreen(c->tag->client_fullscreen);
 
         c->nextfocus = NULL;
         c->prevfocus = t->clients_focus;
@@ -1029,9 +1035,10 @@ arrange(void)
 void
 arrangemon(Monitor *m)
 {
-        // Only arrange current focused Tag of the monitor
+        // Only arrange if we have managed clients
         Tag *t = m->tag;
         if (t->clientnum_managed == 0) return;
+
 
         // We have a fullscreen client on the tag
         if (t->client_fullscreen) {
@@ -1302,13 +1309,39 @@ key_cycleclient(Arg *arg)
         if (!selc) return;
         if (arg->i != 1 && arg->i != -1) return;
 
-        // Dont allow on fullscreen
         Tag *t = selc->tag;
-        if (t->client_fullscreen) return;
         if (t->clientnum < 2) return;
 
         // Client to focus
         Client *c = NULL;
+
+        // Allow switching to dialog windows in fullscreen
+        if (t->client_fullscreen) {
+                if (arg->i == 1) {
+                        for (c = selc->next; c; c = c->next)
+                                if (c->cf & CL_DIALOG) break;
+                        if (!c) {
+                                for (c = t->clients; c; c = c->next)
+                                        if (c->cf & CL_DIALOG || c == selc)
+                                                break;
+                        }
+                } else {
+                        for (c = selc->prev; c; c = c->prev)
+                                if (c->cf & CL_DIALOG) break;
+                        if (!c) {
+                                for (c = t->client_last; c; c = c->prev)
+                                        if (c->cf & CL_DIALOG || c == selc)
+                                                break;
+                        }
+                }
+
+                if (c && c != selc)
+                        focusclient(c, true);
+                else if (c && c != t->client_fullscreen)
+                        focusclient(t->client_fullscreen, true);
+
+                return;
+        }
 
         if (arg->i == 1) {
                 // Focus to next element or to first in stack
@@ -1411,12 +1444,21 @@ setborders(Tag *t)
         // Do not set border when fullscreen client
         if (t->client_fullscreen) {
                 setborder(t->client_fullscreen->win, 0, NULL);
+
+                // Return if focus is on fullscreen client
+                if (t->clients_focus == t->client_fullscreen) return;
+
+                // Only dialogs could be in focus at this point
+                for (Client *c = t->clients; c; c = c->next) {
+                        if (c->cf & CL_DIALOG)
+                                setborder(c->win, borderwidth, &colors.bordercolor);
+                }
+
                 return;
         }
 
         // Set borders for selected tag
         for (Client *c = t->clients; c; c = c->next) {
-                if (c->cf & CL_DIALOG) continue;
                 if (c->mon == selmon && c == selc)
                         setborder(c->win, borderwidth, &colors.bordercolor);
                 else if (c->cf & CL_URGENT)
