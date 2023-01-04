@@ -1,14 +1,11 @@
-Client* get_first_client(Tag*);
-Client* get_last_client(Tag*);
 void    lonely_client(Client*);
-
 
 void
 MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
 {
         Tag *t = m->tag;
 
-        Client *c = get_first_client(t);
+        Client *c = get_first_managed_client(t);
         if (!c) return;
 
         int border_offset = borderwidth * 2;
@@ -17,7 +14,7 @@ MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
                 return;
         }
 
-        Client *lc = get_last_client(t);
+        Client *lc = get_last_managed_client(t);
 
         int base_height = m->height - statusbar.height;
         int master_area = (m->width / 2) + meta->master_offset;
@@ -58,7 +55,7 @@ SIDE_BY_SIDE_LAYOUT(Monitor *m, Layout_Meta *meta)
 {
         Tag *t = m->tag;
 
-        Client *c = get_first_client(t);
+        Client *c = get_first_managed_client(t);
 
         int border_offset = borderwidth * 2;
         if (t->clientnum_managed == 1) {
@@ -66,7 +63,7 @@ SIDE_BY_SIDE_LAYOUT(Monitor *m, Layout_Meta *meta)
                 return;
         }
 
-        Client *lc = get_last_client(t);
+        Client *lc = get_last_managed_client(t);
 
         int client_height = m->height - statusbar.height - border_offset;
         int base_width = m->width / t->clientnum_managed;
@@ -93,7 +90,7 @@ STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
 {
         Tag *t = m->tag;
 
-        Client *c = get_first_client(t);
+        Client *c = get_first_managed_client(t);
 
         int border_offset = borderwidth * 2;
         if (t->clientnum_managed == 1) {
@@ -101,7 +98,7 @@ STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
                 return;
         }
 
-        Client *lc = get_last_client(t);
+        Client *lc = get_last_managed_client(t);
 
         int client_width = m->width - border_offset;
         int base_height = m->height - statusbar.height;
@@ -125,25 +122,7 @@ STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
 
 }
 
-// Utils
-
-Client*
-get_first_client(Tag *t)
-{
-        Client *c = t->clients;
-        for (; c && !(c->cf & CL_MANAGED); c = c->next);
-        return c;
-}
-
-Client*
-get_last_client(Tag *t)
-{
-        Client *c = t->client_last;
-        // Move backwards to the last tiling client
-        for (; c && !(c->cf & CL_MANAGED); c = c->prev);
-        return c;
-}
-
+// Render only one client
 void
 lonely_client(Client *c)
 {

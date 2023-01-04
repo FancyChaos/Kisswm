@@ -5,8 +5,8 @@ OBJ_DIR := obj
 
 EXE := kisswm
 
-CONF_DEFAULT := $(SRC_DIR)/$(EXE).h
-CONF_CUSTOM := config.h
+CONF := config.h
+CONF_DEFAULT := $(SRC_DIR)/$(CONF)
 
 SRC := $(wildcard $(SRC_DIR)/*.c)
 OBJ := $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
@@ -24,9 +24,9 @@ $(OBJ_DIR):
 	mkdir -p $@
 
 config:
-	test -f $(CONF_CUSTOM) || cp $(CONF_DEFAULT) $(CONF_CUSTOM)
+	test -f $(CONF) || cp $(CONF_DEFAULT) $(CONF)
 	test -f $(CONF_DEFAULT).default || mv $(CONF_DEFAULT) $(CONF_DEFAULT).default
-	cp $(CONF_CUSTOM) $(CONF_DEFAULT)
+	cp $(CONF) $(CONF_DEFAULT)
 
 install:
 	test -f $(EXE)

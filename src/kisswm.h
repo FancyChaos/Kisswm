@@ -1,83 +1,238 @@
-char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
-
-static const char dmenufont[]       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
-static const char *barfont       = "Fira Code Nerd Font:pixelsize=18:antialias=true";
-
-static int barheight = 26;
-static int borderwidth = 2;
-
-// Colors in RGB representation (alpha, red, green, blue)
-static unsigned long barbg = 0;
-static unsigned long barfg = 0xFFFAEBD7;
-static unsigned long bordercolor = 0xFFFAEBD7;
-static unsigned long bordercolor_inactive = 0xC56F6C69;
-static unsigned long bordercolor_urgent = 0xFFCC3333;
-
-// Usable layouts:
-// MASTER_STACK_LAYOUT, SIDE_BY_SIDE_LAYOUT,
-// STACK_LAYOUT, NULL (For future floating only mode)
-static Layout_Func layouts_available[] = {
-    MASTER_STACK_LAYOUT,
-    SIDE_BY_SIDE_LAYOUT,
-    STACK_LAYOUT
+enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
+enum {
+        NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE,
+        NET_TYPE, NET_ACTIVE, NET_CLOSE, NET_FULLSCREEN,
+        NET_END
 };
 
-static const char *term[] = {"st", NULL};
-static const char *lock[] = {"fxlock", NULL};
-static const char *dmenucmd[] = {"dmenu_run", "-fn", dmenufont, NULL};
-
-// Buttons (Mouse clicks) to which windows gets focused
-static const unsigned int buttons[] = {Button1, Button2};
-
-#define MODKEY Mod4Mask
-#define TAGKEYS(KEY,TAG) \
-        { MODKEY,                       KEY,      key_focustag,           {.ui = TAG} }, \
-        { MODKEY|ShiftMask,             KEY,      key_mvwintotag,         {.ui = TAG} }, \
-
-Key keys[] = {
-        { MODKEY,                     XK_Return,              key_spawn,                  {.v = term} },
-        { MODKEY,                     XK_d,                   key_spawn,                  {.v = dmenucmd} },
-        { MODKEY|ShiftMask,           XK_l,                   key_spawn,                  {.v = lock} },
-        { MODKEY,                     XK_q,                   key_killclient,             {0} },
-        { MODKEY,                     XK_f,                   key_fullscreen,             {0} },
-
-        { MODKEY,                     XK_j,                   key_cycleclient,            {.i = -1} },
-        { MODKEY,                     XK_Left,                key_cycleclient,            {.i = -1} },
-        { MODKEY,                     XK_k,                   key_cycleclient,            {.i = +1} },
-        { MODKEY,                     XK_Right,               key_cycleclient,            {.i = +1} },
-
-        { MODKEY|ShiftMask,           XK_Left,                key_followwintotag,         {.i = -1} },
-        { MODKEY|ShiftMask,           XK_y,                   key_followwintotag,         {.i = -1} },
-        { MODKEY|ShiftMask,           XK_Right,               key_followwintotag,         {.i = 1} },
-        { MODKEY|ShiftMask,           XK_x,                   key_followwintotag,         {.i = 1} },
-
-        { MODKEY|ControlMask,         XK_Left,                key_cycletag,               {.i = -1} },
-        { MODKEY|ControlMask,         XK_j,                   key_cycletag,               {.i = -1} },
-        { MODKEY|ControlMask,         XK_Right,               key_cycletag,               {.i = 1} },
-        { MODKEY|ControlMask,         XK_k,                   key_cycletag,               {.i = 1} },
-
-        { MODKEY,                     XK_comma,               key_cyclemon,               {.i = -1 } },
-        { MODKEY,                     XK_period,              key_cyclemon,               {.i = 1 } },
-
-        { MODKEY|ShiftMask,           XK_comma,               key_mvwintomon,             {.i = -1 } },
-        { MODKEY|ShiftMask,           XK_period,              key_mvwintomon,             {.i = 1 } },
-
-        { MODKEY|ShiftMask,           XK_j,                   key_mvwin,                  {.i = -1} },
-        { MODKEY|ShiftMask,           XK_k,                   key_mvwin,                  {.i = 1} },
-
-        { MODKEY,                     XK_h,                   key_updatemasteroffset,     {.i = -50} },
-        { MODKEY,                     XK_l,                   key_updatemasteroffset,     {.i = 50} },
-
-        { MODKEY,                     XK_m,                   key_change_layout,          {0} },
-
-        /* Tag keys */
-        TAGKEYS(                      XK_1,                                           1)
-        TAGKEYS(                      XK_2,                                           2)
-        TAGKEYS(                      XK_3,                                           3)
-        TAGKEYS(                      XK_4,                                           4)
-        TAGKEYS(                      XK_5,                                           5)
-        TAGKEYS(                      XK_6,                                           6)
-        TAGKEYS(                      XK_7,                                           7)
-        TAGKEYS(                      XK_8,                                           8)
-        TAGKEYS(                      XK_9,                                           9)
+enum {
+        NET_DESKTOP, NET_DOCK, NET_TOOLBAR, NET_MENU,
+        NET_UTIL, NET_SPLAH, NET_DIALOG, NET_NORMAL,
+        NET_TYPES_END
 };
+
+enum client_flags {
+        CL_URGENT = 1 << 0,
+        CL_DIALOG = 1 << 1,
+        CL_MANAGED = 1 << 2
+};
+
+typedef union {
+        int i;
+        unsigned int ui;
+        float f;
+        void *v;
+} Arg;
+
+typedef struct {
+        unsigned int modmask;
+        KeySym keysym;
+        void (*f)(Arg*);
+        Arg arg;
+} Key;
+
+typedef struct {
+        XftColor xft_color;
+        Colormap cmap;
+} Color;
+
+struct Colors {
+        Color barbg;
+        Color barfg;
+        Color bordercolor;
+        Color bordercolor_inactive;
+        Color bordercolor_urgent;
+};
+
+typedef struct Monitor Monitor;
+typedef struct Client Client;
+typedef struct Tag Tag;
+typedef struct Colors Colors;
+typedef struct Statusbar Statusbar;
+typedef struct Layout Layout;
+typedef struct Layout_Meta Layout_Meta;
+typedef void (*Layout_Func) (Monitor*, Layout_Meta*);
+
+struct Layout_Meta {
+        int master_offset;
+};
+
+struct Layout {
+        Layout_Meta meta;
+        Layout_Func f;
+        size_t index;
+};
+
+struct Statusbar {
+        Window win;
+        XftDraw *xdraw;
+        Colormap cmap;
+        int depth;
+        int width;
+        int height;
+};
+
+struct Client {
+        Window win;
+        Monitor *mon;
+        Tag *tag;
+        Client *next, *prev;
+        Client *nextfocus, *prevfocus;
+        // Client flags
+        int cf;
+        int x;
+        int y;
+        int width;
+        int height;
+        int bw;
+};
+
+struct Tag {
+        // Tag number
+        int num;
+        // Client counters
+        int clientnum;
+        int clientnum_managed;
+        // Assigned monitor
+        Monitor *mon;
+        // Assigned layout
+        Layout *layout;
+        // Clients
+        Client *clients;
+        Client *client_last;
+        Client *client_fullscreen;
+        // Client focus order
+        Client *clients_focus;
+};
+
+struct Monitor {
+        // Name of monitor (atom)
+        char *aname;
+        Monitor *next;
+        Monitor *prev;
+        Tag *tags;
+        Tag *tag;
+        char *bartags;
+        unsigned long bartagssize;
+        int snum;
+        int x;
+        int y;
+        int height;
+        int width;
+};
+
+void    MASTER_STACK_LAYOUT(Monitor*, Layout_Meta*);
+void    SIDE_BY_SIDE_LAYOUT(Monitor*, Layout_Meta*);
+void    STACK_LAYOUT(Monitor*, Layout_Meta*);
+
+void    key_spawn(Arg*);
+void    key_mvwintotag(Arg*);
+void    key_mvwintomon(Arg*);
+void    key_followwintotag(Arg*);
+void    key_mvwin(Arg*);
+void    key_fullscreen(Arg*);
+void    key_focustag(Arg*);
+void    key_cycletag(Arg*);
+void    key_cycleclient(Arg*);
+void    key_cyclemon(Arg*);
+void    key_killclient(Arg*);
+void    key_updatemasteroffset(Arg*);
+void    key_change_layout(Arg*);
+
+void    keypress(XEvent*);
+void    configurenotify(XEvent*);
+void    propertynotify(XEvent*);
+void    configurerequest(XEvent*);
+void    maprequest(XEvent*);
+void    destroynotify(XEvent*);
+void    clientmessage(XEvent*);
+void    mappingnotify(XEvent*);
+void    buttonpress(XEvent*);
+void    enternotify(XEvent*);
+
+void    run(void);
+int     onxerror(Display*, XErrorEvent*);
+int     wm_detected(Display*, XErrorEvent*);
+void    grabbutton(Window w, unsigned int button);
+void    grabbuttons(Window w);
+void    ungrabbutton(Window w, unsigned int button);
+void    ungrabbuttons(Window w);
+void    createcolor(unsigned long color, Color*);
+void    setborder(Window, int, Color*);
+void    setborders(Tag*);
+void    populatemon(Monitor *m, XRRMonitorInfo*);
+void    destroymon(Monitor*, Monitor*);
+void    setup(void);
+void    initmons(void);
+void    grabkeys(void);
+Client* get_first_managed_client(Tag*);
+Client* get_last_managed_client(Tag*);
+Atom    getwinprop(Window, Atom);
+Client *wintoclient(Window);
+bool    sendevent(Window, Atom);
+Monitor *createmon(XRRMonitorInfo*);
+unsigned int cleanmask(unsigned int);
+
+void    focustag(Tag*);
+void    updatetagmasteroffset(Monitor*, int);
+void    focusmon(Monitor*);
+void    updatemons(void);
+void    remaptag(Tag*);
+void    mapclient(Client*);
+void    unmapclient(Client*);
+void    setfullscreen(Client*);
+void    unsetfullscreen(Client*);
+void    closeclient(Client*);
+void    generatebartags(Monitor*);
+void    mvwintotag(Client*, Tag*);
+void    mvwintomon(Client*, Monitor*, Tag*);
+void    attach(Client*);
+void    detach(Client*);
+void    focusattach(Client*);
+void    focusdetach(Client*);
+void    focusclient(Client*, bool);
+void    focus(Window, Client*, bool);
+void    arrange(void);
+void    arrangemon(Monitor*);
+void    set_window_size(Window, int, int, int, int);
+void    set_client_size(Client*, int, int, int, int);
+
+void    updatebars(void);
+void    updatestatustext(void);
+void    drawbar(Monitor*);
+
+void (*handler[LASTEvent])(XEvent*) = {
+        [KeyPress] = keypress,
+        [ConfigureNotify] = configurenotify,
+        [ConfigureRequest] = configurerequest,
+        [PropertyNotify] = propertynotify,
+        [MapRequest] = maprequest,
+        [MappingNotify] = mappingnotify,
+        [DestroyNotify] = destroynotify,
+        [ClientMessage] = clientmessage,
+        [ButtonPress] = buttonpress,
+        [EnterNotify] = enternotify
+};
+
+Atom ATOM_UTF8;
+Atom icccm_atoms[ICCCM_END];
+Atom net_atoms[NET_END];
+Atom net_win_types[NET_TYPES_END];
+
+Display *dpy;
+Window root;
+Monitor *mons, *selmon, *lastmon;
+Client *selc;
+Statusbar statusbar;
+
+Colors colors;
+XftFont *xfont;
+XGlyphInfo xglyph;
+XVisualInfo xvisual_info;
+
+int screen;
+int sw;
+int currentmonnum;
+long long monupdatetime = 0;
+
+char barstatus[256];
