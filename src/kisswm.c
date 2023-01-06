@@ -482,7 +482,7 @@ unsetfullscreen(Client *c)
 }
 
 void
-mvwintomon(Client *c, Monitor *m, Tag *t)
+move_client_to_monitor(Client *c, Monitor *m, Tag *t)
 {
         if (!c || !m) return;
 
@@ -500,7 +500,7 @@ mvwintomon(Client *c, Monitor *m, Tag *t)
 }
 
 void
-mvwintotag(Client *c, Tag *t)
+move_client_to_tag(Client *c, Tag *t)
 {
         // Detach client from current tag
         detach(c);
@@ -859,7 +859,7 @@ key_change_layout(Arg* arg)
 }
 
 void
-key_updatemasteroffset(Arg *arg)
+key_update_master_offset(Arg *arg)
 {
         if (selmon->tag->client_fullscreen) return;
         updatetagmasteroffset(selmon, arg->i);
@@ -867,7 +867,7 @@ key_updatemasteroffset(Arg *arg)
 }
 
 void
-key_killclient(Arg *arg)
+key_kill_client(Arg *arg)
 {
         if (!selc) return;
 
@@ -907,7 +907,7 @@ key_fullscreen(Arg* arg)
 }
 
 void
-key_mvwintomon(Arg *arg)
+key_move_client_to_monitor(Arg *arg)
 {
         if (!selc || !mons->next) return;
 
@@ -925,7 +925,7 @@ key_mvwintomon(Arg *arg)
         if (tm->tag->client_fullscreen) return;
 
         // Move client (win) to target monitor
-        mvwintomon(c, tm, NULL);
+        move_client_to_monitor(c, tm, NULL);
 
         // Update bartags of target monitor
         tm->bartags[tm->tag->num * 2] = '*';
@@ -941,7 +941,7 @@ key_mvwintomon(Arg *arg)
 }
 
 void
-key_mvwintotag(Arg *arg)
+key_move_client_to_tag(Arg *arg)
 {
         if (!selc) return;
         if (arg->ui < 1 || arg->ui > tags_num) return;
@@ -955,7 +955,7 @@ key_mvwintotag(Arg *arg)
         Tag *tm = selmon->tags + (arg->ui -1);
 
         // Move the client to tag (detach, attach)
-        mvwintotag(c, tm);
+        move_client_to_tag(c, tm);
 
         // Unmap moved client
         unmapclient(c);
@@ -972,7 +972,7 @@ key_mvwintotag(Arg *arg)
 }
 
 void
-key_followwintotag(Arg *arg)
+key_follow_client_to_tag(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
         if (!selc) return;
@@ -985,12 +985,12 @@ key_followwintotag(Arg *arg)
         else if (totag == tags_num) totag = 0;
 
         Tag *tm = selmon->tags + totag;
-        mvwintotag(selc, tm);
+        move_client_to_tag(selc, tm);
         focustag(tm);
 }
 
 void
-key_mvwin(Arg *arg)
+key_move_client(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
         if (!selc) return;
@@ -1039,7 +1039,7 @@ key_mvwin(Arg *arg)
 }
 
 void
-key_cycletag(Arg *arg)
+key_cycle_tag(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
 
@@ -1051,7 +1051,7 @@ key_cycletag(Arg *arg)
 }
 
 void
-key_cyclemon(Arg *arg)
+key_cycle_monitor(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
 
@@ -1068,7 +1068,7 @@ key_cyclemon(Arg *arg)
 }
 
 void
-key_cycleclient(Arg *arg)
+key_cycle_client(Arg *arg)
 {
         if (!selc) return;
         if (arg->i != 1 && arg->i != -1) return;
@@ -1121,7 +1121,7 @@ key_cycleclient(Arg *arg)
 }
 
 void
-key_focustag(Arg *arg)
+key_focus_tag(Arg *arg)
 {
         if (arg->ui < 1 || arg->ui > tags_num) return;
 
@@ -1466,7 +1466,7 @@ destroymon(Monitor *m, Monitor *tm)
                 Client *nc = NULL;
                 for (Client *c = m->tags[i].clients; c; c = nc) {
                         nc = c->next;
-                        mvwintomon(c, tm, tm->tags + i);
+                        move_client_to_monitor(c, tm, tm->tags + i);
                         tm->bartags[i * 2] = '*';
                 }
         }
