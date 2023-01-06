@@ -6,12 +6,12 @@
 
 - Basic ICCM/EWMH compliance
 - Built-in statusbar
-        - Displays the root window name (can be used with dwmblocks)
+  - Displays the root window name (can be used with dwmblocks)
 - Common navigation functionalities
 - Multiple tiling layouts switchable per tag
-        - Stack
-        - Master stack
-        - Side by side
+  - Stack
+  - Master stack
+  - Side by side
 - Basic multi-monitor support
 - Window borders and custom border colors
 
