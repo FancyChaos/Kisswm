@@ -1,0 +1,10 @@
+#!/bin/sh
+
+which xdotool >/dev/null 2>&1 || { echo "Missing application - xdotool" 1>&2; exit 1; }
+
+CMD=$@
+WIN=$(xdotool getactivewindow)
+
+xdotool windowstate --add HIDDEN $WIN
+$CMD
+xdotool windowstate --remove HIDDEN $WIN

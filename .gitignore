@@ -1,5 +1,6 @@
 kisswm
 /config.h
+src/config.h.default
 obj/
 *.core
 todo

@@ -91,8 +91,8 @@ clientmessage(XEvent *e)
                 c->cf |= CL_URGENT;
                 setborders(c->tag);
         } else if (ev->message_type == net_atoms[NET_STATE]) {
-                if (ev->data.l[1] == net_atoms[NET_FULLSCREEN] ||
-                    ev->data.l[2] == net_atoms[NET_FULLSCREEN]) {
+                if (ev->data.l[1] == net_win_states[NET_FULLSCREEN] ||
+                    ev->data.l[2] == net_win_states[NET_FULLSCREEN]) {
                             if (c->tag != c->mon->tag) return;
 
                             Client *fc = c->tag->client_fullscreen;
@@ -116,6 +116,21 @@ clientmessage(XEvent *e)
                             remaptag(c->tag);
                             arrangemon(c->tag->mon);
                             drawbar(c->tag->mon);
+                } else if (ev->data.l[1] == net_win_states[NET_HIDDEN]) {
+                        switch (ev->data.l[0]) {
+                        case 2: // Toggle
+                                if (c->cf & CL_HIDDEN) unhide(c);
+                                else hide(c);
+                                break;
+                        case 1: // Add (Set hidden)
+                                hide(c);
+                                break;
+                        case 0: // Remove (Unset hidden)
+                                unhide(c);
+                                break;
+                        default:
+                                return;
+                        }
                 }
         }
 
@@ -388,6 +403,44 @@ updatestatustext(void)
 /*** WM state changing functions ***/
 
 void
+hide(Client *c)
+{
+        if (!c || c->cf & CL_HIDDEN) return;
+
+        // Add hidden flag and remove managed flag
+        c->cf |= CL_HIDDEN;
+
+        c->cf &= ~CL_MANAGED;
+        --c->tag->clientnum_managed;
+
+        remaptag(c->tag);
+        arrangemon(c->tag->mon);
+
+        // Detach from focus
+        focusdetach(c);
+        focusclient(c->tag->clients_focus, true);
+}
+
+void
+unhide(Client *c)
+{
+        if (!c || !(c->cf & CL_HIDDEN)) return;
+
+        // Remove hidden flag and add managed flag
+        c->cf &= ~CL_HIDDEN;
+
+        c->cf |= CL_MANAGED;
+        ++c->tag->clientnum_managed;
+
+        remaptag(c->tag);
+        arrangemon(c->tag->mon);
+
+        // Attach to focus
+        focusattach(c);
+        focusclient(c, true);
+}
+
+void
 focusmon(Monitor *m)
 {
         if (!m) return;
@@ -457,7 +510,7 @@ setfullscreen(Client *c)
                 XA_ATOM,
                 32,
                 PropModeReplace,
-                (unsigned char*) &net_atoms[NET_FULLSCREEN],
+                (unsigned char*) &net_win_states[NET_FULLSCREEN],
                 1);
         c->tag->client_fullscreen = c;
         XRaiseWindow(dpy, c->win);
@@ -536,13 +589,16 @@ remaptag(Tag *t)
                 // if tag is not the current active tag unmap everything
                 for (Client *c = t->clients; c; c = c->next) unmapclient(c);
         } else if (t->client_fullscreen) {
-                // only map focused client and dialogs on fullscreen
+                // only map fullscreen and dialog clients
                 for (Client *c = t->clients; c; c = c->next) {
                         if (c == t->client_fullscreen ||c->cf & CL_DIALOG) mapclient(c);
                         else unmapclient(c);
                 }
         } else {
-                for (Client *c = t->clients; c; c = c->next) mapclient(c);
+                for (Client *c = t->clients; c; c = c->next) {
+                        if (c->cf & CL_HIDDEN) unmapclient(c);
+                        else mapclient(c);
+                }
         }
         XSync(dpy, 0);
 }
@@ -617,11 +673,11 @@ focus(Window w, Client *c, bool warp)
 void
 focusclient(Client *c, bool warp)
 {
-        // Try to focus client on the active tag
-        // of the currently focused monitor
         if (!c) {
                 c = selmon->tag->clients_focus;
-                if (c && c != selc) {
+                if (c && c->cf & CL_HIDDEN) {
+                        return;
+                } else if (c && c != selc) {
                         focusclient(c, warp);
                 } else if (!c) {
                         if (selc) grabbuttons(selc->win);
@@ -630,6 +686,10 @@ focusclient(Client *c, bool warp)
                 }
                 return;
         }
+
+        // Focus only clients on an active tag
+        // and ignore hidden clients
+        if (c->tag != c->mon->tag || c->cf & CL_HIDDEN) return;
 
         if (selc && c != selc) grabbuttons(selc->win);
         ungrabbuttons(c->win);
@@ -652,8 +712,8 @@ focusclient(Client *c, bool warp)
         selc = c;
 
         setborders(c->tag);
-
         focus(c->win, c, warp);
+
         XSync(dpy, 0);
 }
 
@@ -1111,10 +1171,24 @@ key_cycle_client(Arg *arg)
                 // Focus to next element or to first in stack
                 c = selc->next;
                 if (!c) c = t->clients;
+
+                // Get next client which is not hidden
+                while (c->cf & CL_HIDDEN) {
+                        if (c == selc) break;
+                        if (c->next) c = c->next;
+                        else c = t->clients;
+                }
         } else {
                 // Focus to previous element or last in the stack
                 c = selc->prev;
                 if (!c) c = t->client_last;
+
+                // Get previous client which is not hidden
+                while (c->cf & CL_HIDDEN) {
+                        if (c == selc) break;
+                        if (c->prev) c = c->prev;
+                        else c = t->client_last;
+                }
         }
 
         focusclient(c, true);
@@ -1240,6 +1314,8 @@ setborders(Tag *t)
 
         // Set borders for selected tag
         for (Client *c = t->clients; c; c = c->next) {
+                if (c->cf & CL_HIDDEN) continue;
+
                 if (c->mon == selmon && c == selc)
                         setborder(c->win, borderwidth, &colors.bordercolor);
                 else if (c->cf & CL_URGENT)
@@ -1574,7 +1650,6 @@ setup(void)
         net_atoms[NET_TYPE] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", False);
         net_atoms[NET_ACTIVE] = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
         net_atoms[NET_CLOSE] = XInternAtom(dpy, "_NET_CLOSE_WINDOW", False);
-        net_atoms[NET_FULLSCREEN] = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
 
         // Set atoms for window types
         net_win_types[NET_DESKTOP] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DESKTOP", False);
@@ -1582,9 +1657,13 @@ setup(void)
         net_win_types[NET_TOOLBAR] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_TOOLBAR", False);
         net_win_types[NET_MENU] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_MENU", False);
         net_win_types[NET_UTIL] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_UTILITY", False);
-        net_win_types[NET_SPLAH] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_SPLAH", False);
+        net_win_types[NET_SPLASH] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_SPLASH", False);
         net_win_types[NET_DIALOG] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DIALOG", False);
         net_win_types[NET_NORMAL] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_NORMAL", False);
+
+        // Set atoms for window states
+        net_win_states[NET_FULLSCREEN] = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
+        net_win_states[NET_HIDDEN] = XInternAtom(dpy, "_NET_WM_STATE_HIDDEN", False);
 
         // Set supported net atoms
         XChangeProperty(

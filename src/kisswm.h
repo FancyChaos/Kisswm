@@ -1,22 +1,32 @@
 #define VERSION "v1.0.0"
 
-enum { ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS, ICCCM_END };
-enum {
+enum ICCM_ATOMS {
+        ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS,
+        ICCCM_END
+};
+
+enum EWMH_WINDOW_ATOMS {
         NET_SUPPORTED, NET_SUPPORTING, NET_WM_NAME, NET_STATE,
-        NET_TYPE, NET_ACTIVE, NET_CLOSE, NET_FULLSCREEN,
+        NET_TYPE, NET_ACTIVE, NET_CLOSE,
         NET_END
 };
 
-enum {
+enum EWMH_WINDOW_TYPES {
         NET_DESKTOP, NET_DOCK, NET_TOOLBAR, NET_MENU,
-        NET_UTIL, NET_SPLAH, NET_DIALOG, NET_NORMAL,
+        NET_UTIL, NET_SPLASH, NET_DIALOG, NET_NORMAL,
         NET_TYPES_END
 };
 
-enum client_flags {
-        CL_URGENT = 1 << 0,
-        CL_DIALOG = 1 << 1,
-        CL_MANAGED = 1 << 2
+enum EWMH_WINDOW_STATES {
+        NET_HIDDEN, NET_FULLSCREEN,
+        NET_STATES_END
+};
+
+enum CLIENT_FLAGS {
+        CL_URGENT       = 1 << 0,
+        CL_DIALOG       = 1 << 1,
+        CL_MANAGED      = 1 << 2,
+        CL_HIDDEN       = 1 << 3
 };
 
 typedef union {
@@ -175,6 +185,8 @@ bool    sendevent(Window, Atom);
 Monitor *createmon(XRRMonitorInfo*);
 unsigned int cleanmask(unsigned int);
 
+void    hide(Client*);
+void    unhide(Client*);
 void    focustag(Tag*);
 void    updatetagmasteroffset(Monitor*, int);
 void    focusmon(Monitor*);
@@ -220,6 +232,7 @@ Atom ATOM_UTF8;
 Atom icccm_atoms[ICCCM_END];
 Atom net_atoms[NET_END];
 Atom net_win_types[NET_TYPES_END];
+Atom net_win_states[NET_STATES_END];
 
 Display *dpy;
 Window root;
