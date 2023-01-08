@@ -74,3 +74,14 @@ which is the *super key*/*Windows key* on the keyboard.
 - [ ] Add workspaces (Like virtual monitors)
 - [ ] Add full floating support (Be a dynamic window manager)
 - [ ] Add option to use a different statusbar than the built-in one
+
+## Examples of available tiling layouts
+
+**Master stack layout**
+![debian_master_stack](assets/images/debian_master_stack.jpg)
+
+**Stack layout**
+![openbsd_stack](assets/images/openbsd_stack.jpg)
+
+**Side by side layout**
+![debian_side_by_side](assets/images/debian_side_by_side.jpg)
