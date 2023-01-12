@@ -68,9 +68,22 @@ which is the *super key*/*Windows key* on the keyboard.
 | `MOD` + `l`                   | Increase master area (layout)        |
 | `MOD` + `h`                   | Decrease master area (layout)        |
 
+## Utilities
+
+Applications in *utilities/* can be used to change
+the behavior or state of kisswm.
+
+**`kswallow`**
+
+*kswallow* can be used to achieve patched DWM like swallowing behavior.
+
+The terminal from which an application was executed using *kswallow* will
+be hidden till the application terminates.
+> kswallow mpv somevid.mp4
+
 ## Roadmap
 
-- [ ] Add DWM like swallowing mode
+- [x] Add DWM like swallowing mode
 - [ ] Add workspaces (Like virtual monitors)
 - [ ] Add full floating support (Be a dynamic window manager)
 - [ ] Add option to use a different statusbar than the built-in one
