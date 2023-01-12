@@ -1,6 +1,8 @@
 #!/bin/sh
 
-which xdotool >/dev/null 2>&1 || { echo "Missing application - xdotool" 1>&2; exit 1; }
+[ -z $1 ] && echo "No application supplied" 1>&2 && exit 1
+
+which xdotool >/dev/null 2>&1 || { echo "Missing application - xdotool" 1>&2; exit 2; }
 
 CMD=$@
 WIN=$(xdotool getactivewindow)
