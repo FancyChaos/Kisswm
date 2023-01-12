@@ -407,9 +407,12 @@ hide(Client *c)
 {
         if (!c || c->cf & CL_HIDDEN) return;
 
+        if (c->tag->client_fullscreen == c) unsetfullscreen(c);
+
         // Add hidden flag and remove managed flag
         c->cf |= CL_HIDDEN;
 
+        // Client will not be managed when hidden
         c->cf &= ~CL_MANAGED;
         --c->tag->clientnum_managed;
 
