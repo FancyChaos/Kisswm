@@ -81,6 +81,8 @@ The terminal from which an application was executed using *kswallow* will
 be hidden till the application terminates.
 > kswallow mpv somevid.mp4
 
+*kswallow* requires [xdotool](https://github.com/jordansissel/xdotool) version v3.20210804.1 or higher.
+
 ## Roadmap
 
 - [x] Add DWM like swallowing mode
