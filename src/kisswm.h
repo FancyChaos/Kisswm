@@ -1,4 +1,4 @@
-#define VERSION "v1.0.0"
+#define VERSION "v1.1.0"
 
 enum ICCM_ATOMS {
         ICCCM_PROTOCOLS, ICCCM_DEL_WIN, ICCCM_FOCUS,
