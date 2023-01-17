@@ -1,0 +1,13 @@
+#!/bin/sh
+
+which xdotool >/dev/null 2>&1 || { echo "Missing application - xdotool" 1>&2; exit 1; }
+[ -z $1 ] && echo "No application supplied" 1>&2 && exit 2
+
+
+CMD=$@
+WIN=$(xdotool getactivewindow)
+
+xdotool windowstate --add HIDDEN $WIN >/dev/null 2>&1 ||
+    { echo "xdotool version v3.20210804.1 or higher required" 1>&2; exit 3; }
+$CMD
+xdotool windowstate --remove HIDDEN $WIN >/dev/null 2>&1
