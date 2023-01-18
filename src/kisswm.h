@@ -57,6 +57,7 @@ struct Colors {
 };
 
 typedef struct Monitor Monitor;
+typedef struct Workspace Workspace;
 typedef struct Client Client;
 typedef struct Tag Tag;
 typedef struct Colors Colors;
@@ -87,6 +88,7 @@ struct Statusbar {
 struct Client {
         Window win;
         Monitor *mon;
+        Workspace *ws;
         Tag *tag;
         Client *next, *prev;
         Client *nextfocus, *prevfocus;
@@ -105,8 +107,8 @@ struct Tag {
         // Client counters
         int clientnum;
         int clientnum_managed;
-        // Assigned monitor
-        Monitor *mon;
+        // Assigned workspace
+        Workspace *ws;
         // Assigned layout
         Layout *layout;
         // Clients
@@ -117,15 +119,24 @@ struct Tag {
         Client *clients_focus;
 };
 
+struct Workspace {
+        Workspace *next;
+        Workspace *prev;
+        // Assigned monitor
+        Monitor *mon;
+        Tag *tags;
+        Tag *tag;
+        char *bartags;
+        unsigned long bartagssize;
+};
+
 struct Monitor {
         // Name of monitor (atom)
         char *aname;
         Monitor *next;
         Monitor *prev;
-        Tag *tags;
-        Tag *tag;
-        char *bartags;
-        unsigned long bartagssize;
+        // Workspaces
+        Workspace *ws;
         int snum;
         int x;
         int y;
@@ -133,87 +144,88 @@ struct Monitor {
         int width;
 };
 
-void    MASTER_STACK_LAYOUT(Monitor*, Layout_Meta*);
-void    SIDE_BY_SIDE_LAYOUT(Monitor*, Layout_Meta*);
-void    STACK_LAYOUT(Monitor*, Layout_Meta*);
+void            MASTER_STACK_LAYOUT(Monitor*, Layout_Meta*);
+void            SIDE_BY_SIDE_LAYOUT(Monitor*, Layout_Meta*);
+void            STACK_LAYOUT(Monitor*, Layout_Meta*);
 
-void    key_spawn(Arg*);
-void    key_move_client_to_tag(Arg*);
-void    key_move_client_to_monitor(Arg*);
-void    key_follow_client_to_tag(Arg*);
-void    key_move_client(Arg*);
-void    key_fullscreen(Arg*);
-void    key_focus_tag(Arg*);
-void    key_cycle_tag(Arg*);
-void    key_cycle_client(Arg*);
-void    key_cycle_monitor(Arg*);
-void    key_kill_client(Arg*);
-void    key_update_master_offset(Arg*);
-void    key_change_layout(Arg*);
+void            key_spawn(Arg*);
+void            key_move_client_to_tag(Arg*);
+void            key_move_client_to_monitor(Arg*);
+void            key_follow_client_to_tag(Arg*);
+void            key_move_client(Arg*);
+void            key_fullscreen(Arg*);
+void            key_focus_tag(Arg*);
+void            key_cycle_tag(Arg*);
+void            key_cycle_client(Arg*);
+void            key_cycle_monitor(Arg*);
+void            key_kill_client(Arg*);
+void            key_update_master_offset(Arg*);
+void            key_change_layout(Arg*);
 
-void    keypress(XEvent*);
-void    configurenotify(XEvent*);
-void    propertynotify(XEvent*);
-void    configurerequest(XEvent*);
-void    maprequest(XEvent*);
-void    destroynotify(XEvent*);
-void    clientmessage(XEvent*);
-void    mappingnotify(XEvent*);
-void    buttonpress(XEvent*);
-void    enternotify(XEvent*);
+void            keypress(XEvent*);
+void            configurenotify(XEvent*);
+void            propertynotify(XEvent*);
+void            configurerequest(XEvent*);
+void            maprequest(XEvent*);
+void            destroynotify(XEvent*);
+void            clientmessage(XEvent*);
+void            mappingnotify(XEvent*);
+void            buttonpress(XEvent*);
+void            enternotify(XEvent*);
 
-void    run(void);
-int     onxerror(Display*, XErrorEvent*);
-int     wm_detected(Display*, XErrorEvent*);
-void    grabbutton(Window w, unsigned int button);
-void    grabbuttons(Window w);
-void    ungrabbutton(Window w, unsigned int button);
-void    ungrabbuttons(Window w);
-void    createcolor(unsigned long color, Color*);
-void    setborder(Window, int, Color*);
-void    setborders(Tag*);
-void    populatemon(Monitor *m, XRRMonitorInfo*);
-void    destroymon(Monitor*, Monitor*);
-void    setup(void);
-void    initmons(void);
-void    grabkeys(void);
-Client* get_first_managed_client(Tag*);
-Client* get_last_managed_client(Tag*);
-Atom    getwinprop(Window, Atom);
-Client *wintoclient(Window);
-bool    sendevent(Window, Atom);
-Monitor *createmon(XRRMonitorInfo*);
-unsigned int cleanmask(unsigned int);
+void            run(void);
+int             onxerror(Display*, XErrorEvent*);
+int             wm_detected(Display*, XErrorEvent*);
+void            grabbutton(Window w, unsigned int button);
+void            grabbuttons(Window w);
+void            ungrabbutton(Window w, unsigned int button);
+void            ungrabbuttons(Window w);
+void            createcolor(unsigned long color, Color*);
+void            setborder(Window, int, Color*);
+void            setborders(Tag*);
+void            monitor_update(Monitor *m, XRRMonitorInfo*);
+void            monitor_destroy(Monitor*, Monitor*);
+void            setup(void);
+void            initialize_monitors(void);
+void            grabkeys(void);
+Client*         get_first_managed_client(Tag*);
+Client*         get_last_managed_client(Tag*);
+Atom            getwinprop(Window, Atom);
+Client*         wintoclient(Window);
+bool            sendevent(Window, Atom);
+Monitor*        monitor_create(XRRMonitorInfo*);
+Workspace*      workspace_create(Monitor*);
+unsigned int    cleanmask(unsigned int);
 
-void    hide(Client*);
-void    unhide(Client*);
-void    focustag(Tag*);
-void    updatetagmasteroffset(Monitor*, int);
-void    focusmon(Monitor*);
-void    updatemons(void);
-void    remaptag(Tag*);
-void    mapclient(Client*);
-void    unmapclient(Client*);
-void    setfullscreen(Client*);
-void    unsetfullscreen(Client*);
-void    closeclient(Client*);
-void    generatebartags(Monitor*);
-void    move_client_to_tag(Client*, Tag*);
-void    move_client_to_monitor(Client*, Monitor*, Tag*);
-void    attach(Client*);
-void    detach(Client*);
-void    focusattach(Client*);
-void    focusdetach(Client*);
-void    focusclient(Client*, bool);
-void    focus(Window, Client*, bool);
-void    arrange(void);
-void    arrangemon(Monitor*);
-void    set_window_size(Window, int, int, int, int);
-void    set_client_size(Client*, int, int, int, int);
+void            hide(Client*);
+void            unhide(Client*);
+void            focustag(Tag*);
+void            updatetagmasteroffset(Monitor*, int);
+void            focusmon(Monitor*);
+void            updatemons(void);
+void            remaptag(Tag*);
+void            mapclient(Client*);
+void            unmapclient(Client*);
+void            setfullscreen(Client*);
+void            unsetfullscreen(Client*);
+void            closeclient(Client*);
+void            generate_bartags(Workspace*, Monitor*);
+void            move_client_to_tag(Client*, Tag*);
+void            move_client_to_monitor(Client*, Monitor*, Tag*);
+void            attach(Client*);
+void            detach(Client*);
+void            focusattach(Client*);
+void            focusdetach(Client*);
+void            focusclient(Client*, bool);
+void            focus(Window, Client*, bool);
+void            arrange(void);
+void            arrangemon(Monitor*);
+void            set_window_size(Window, int, int, int, int);
+void            set_client_size(Client*, int, int, int, int);
 
-void    updatebars(void);
-void    updatestatustext(void);
-void    drawbar(Monitor*);
+void            updatebars(void);
+void            updatestatustext(void);
+void            drawbar(Monitor*);
 
 void (*handler[LASTEvent])(XEvent*) = {
         [KeyPress] = keypress,

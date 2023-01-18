@@ -3,7 +3,7 @@ void    lonely_client(Client*);
 void
 MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
 {
-        Tag *t = m->tag;
+        Tag *t = m->ws->tag;
 
         Client *c = get_first_managed_client(t);
         if (!c) return;
@@ -53,7 +53,7 @@ MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
 void
 SIDE_BY_SIDE_LAYOUT(Monitor *m, Layout_Meta *meta)
 {
-        Tag *t = m->tag;
+        Tag *t = m->ws->tag;
 
         Client *c = get_first_managed_client(t);
 
@@ -88,7 +88,7 @@ SIDE_BY_SIDE_LAYOUT(Monitor *m, Layout_Meta *meta)
 void
 STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
 {
-        Tag *t = m->tag;
+        Tag *t = m->ws->tag;
 
         Client *c = get_first_managed_client(t);
 

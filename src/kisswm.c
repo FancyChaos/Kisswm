@@ -52,7 +52,9 @@ buttonpress(XEvent *e)
                         if (ev->x_root <= (m->x + m->width)) {
                                 if (m != selmon) {
                                         focusmon(m);
-                                        focusclient(m->tag->clients_focus, false);
+                                        focusclient(
+                                                m->ws->tag->clients_focus,
+                                                false);
                                 }
                                 break;
                         }
@@ -86,14 +88,17 @@ clientmessage(XEvent *e)
         Client *c = wintoclient(ev->window);
         if (!c) return;
 
-        if (ev->message_type == net_atoms[NET_ACTIVE] && c->tag != selmon->tag) {
-                c->mon->bartags[c->tag->num * 2] = '!';
+        if (ev->message_type == net_atoms[NET_ACTIVE] &&
+            c->tag != selmon->ws->tag) {
+                c->ws->bartags[c->tag->num * 2] = '!';
                 c->cf |= CL_URGENT;
                 setborders(c->tag);
         } else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_win_states[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_win_states[NET_FULLSCREEN]) {
-                            if (c->tag != c->mon->tag) return;
+                            // Ignore request if clients tag
+                            // is not the selected one
+                            if (c->tag != c->mon->ws->tag) return;
 
                             Client *fc = c->tag->client_fullscreen;
                             // Client is not allowed to interrupt
@@ -114,9 +119,10 @@ clientmessage(XEvent *e)
                                     return;
                             }
                             remaptag(c->tag);
-                            arrangemon(c->tag->mon);
-                            drawbar(c->tag->mon);
+                            arrangemon(c->mon);
+                            drawbar(c->mon);
                 } else if (ev->data.l[1] == net_win_states[NET_HIDDEN]) {
+                        // Hide window if requested
                         switch (ev->data.l[0]) {
                         case 2: // Toggle
                                 if (c->cf & CL_HIDDEN) unhide(c);
@@ -156,12 +162,13 @@ maprequest(XEvent *e)
 
         // We assume the maprequest is on the current (selected) monitor
         // Get current tag
-        Tag *ct = selmon->tag;
+        Tag *ct = selmon->ws->tag;
 
         Client *c = ecalloc(sizeof(Client), 1);
         c->next = c->prev = c->nextfocus = c->prevfocus = NULL;
         c->win = ev->window;
         c->mon = selmon;
+        c->ws = selmon->ws;
         c->tag = ct;
         c->cf = CL_MANAGED;
 
@@ -221,7 +228,7 @@ configurenotify(XEvent *e)
         set_window_size(statusbar.win, statusbar.width, statusbar.height, 0, 0);
         updatebars();
 
-        focusclient(selmon->tag->clients_focus, true);
+        focusclient(selmon->ws->tag->clients_focus, true);
 
         XSync(dpy, 0);
 }
@@ -313,7 +320,7 @@ drawbar(Monitor *m)
                 0);
 
         // Do not draw bar if fullscreen window on monitor
-        Tag *t = m->tag;
+        Tag *t = m->ws->tag;
         if (t->client_fullscreen) {
                 XSync(dpy, 0);
                 return;
@@ -327,14 +334,14 @@ drawbar(Monitor *m)
                 (unsigned int) m->width,
                 (unsigned int) statusbar.height);
 
-        int bartagslen = (int) strnlen(m->bartags, m->bartagssize);
+        int bartagslen = (int) strnlen(m->ws->bartags, m->ws->bartagssize);
         int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
 
         // Get glyph information about statusbartags (Dimensions of text)
         XftTextExtentsUtf8(
                 dpy,
                 xfont,
-                (XftChar8 *) m->bartags,
+                (XftChar8 *) m->ws->bartags,
                 bartagslen,
                 &xglyph);
         int baroffset = xglyph.y + ((statusbar.height - xglyph.height) / 2);
@@ -346,7 +353,7 @@ drawbar(Monitor *m)
                 xfont,
                 m->x,
                 m->y + baroffset,
-                (XftChar8 *) m->bartags,
+                (XftChar8 *) m->ws->bartags,
                 bartagslen);
 
         if (barstatus[0] == '\0') {
@@ -417,7 +424,7 @@ hide(Client *c)
         --c->tag->clientnum_managed;
 
         remaptag(c->tag);
-        arrangemon(c->tag->mon);
+        arrangemon(c->mon);
 
         // Detach from focus
         focusdetach(c);
@@ -436,7 +443,7 @@ unhide(Client *c)
         ++c->tag->clientnum_managed;
 
         remaptag(c->tag);
-        arrangemon(c->tag->mon);
+        arrangemon(c->mon);
 
         // Attach to focus
         focusattach(c);
@@ -452,39 +459,40 @@ focusmon(Monitor *m)
         Monitor *pm = selmon;
 
         // Update bartags of previous focused monitor
-        pm->bartags[pm->tag->num * 2] = '^';
+        pm->ws->bartags[pm->ws->tag->num * 2] = '^';
         drawbar(pm);
 
         // Update bartags of monitor to focus
-        m->bartags[m->tag->num * 2] = '>';
+        m->ws->bartags[m->ws->tag->num * 2] = '>';
         drawbar(m);
 
         // Set current monitor
         selmon = m;
 
         // Set borders to inactive on previous monitor
-        setborders(pm->tag);
+        setborders(pm->ws->tag);
 
         XSync(dpy, 0);
 }
+
 void
 focustag(Tag *t)
 {
         // Get monitor of tag and the current selected tag
-        Monitor *m = t->mon;
-        Tag *tc = m->tag;
+        Monitor *m = t->ws->mon;
+        Tag *tc = m->ws->tag;
 
         if (m != selmon) focusmon(m);
 
         // Clear old tag identifier in the statusbar
-        if (tc->clientnum) m->bartags[tc->num * 2] = '*';
-        else m->bartags[tc->num * 2] = ' ';
+        if (tc->clientnum) m->ws->bartags[tc->num * 2] = '*';
+        else m->ws->bartags[tc->num * 2] = ' ';
 
         // Create new tag identifier in the statusbar
-        m->bartags[t->num * 2] = '>';
+        m->ws->bartags[t->num * 2] = '>';
 
         // Update the current active tag
-        m->tag = t;
+        m->ws->tag = t;
 
         // Redraw both tags
         remaptag(tc);
@@ -543,12 +551,13 @@ move_client_to_monitor(Client *c, Monitor *m, Tag *t)
         if (!c || !m) return;
 
         // Tag of target monitor to move window to
-        Tag *tt = t ? t : m->tag;
+        Tag *tt = t ? t : m->ws->tag;
 
         detach(c);
         focusdetach(c);
 
         c->mon = m;
+        c->ws = m->ws;
         c->tag = tt;
 
         attach(c);
@@ -588,7 +597,7 @@ remaptag(Tag *t)
 {
         if (!t) return;
 
-        if (t != t->mon->tag) {
+        if (t != t->ws->tag) {
                 // if tag is not the current active tag unmap everything
                 for (Client *c = t->clients; c; c = c->next) unmapclient(c);
         } else if (t->client_fullscreen) {
@@ -623,10 +632,10 @@ closeclient(Client *c)
         free(c);
 
         // Clear statusbar if last client and not focused
-        if (!t->clientnum && t != m->tag) m->bartags[t->num * 2] = ' ';
+        if (!t->clientnum && t != m->ws->tag) m->ws->bartags[t->num * 2] = ' ';
 
         // if the tag where client closed is active (seen)
-        if (t == m->tag) {
+        if (t == m->ws->tag) {
                 remaptag(t);
                 arrangemon(m);
                 focusclient(t->clients_focus, true);
@@ -677,7 +686,7 @@ void
 focusclient(Client *c, bool warp)
 {
         if (!c) {
-                c = selmon->tag->clients_focus;
+                c = selmon->ws->tag->clients_focus;
                 if (c && c->cf & CL_HIDDEN) {
                         return;
                 } else if (c && c != selc) {
@@ -692,7 +701,7 @@ focusclient(Client *c, bool warp)
 
         // Focus only clients on an active tag
         // and ignore hidden clients
-        if (c->tag != c->mon->tag || c->cf & CL_HIDDEN) return;
+        if (c->tag != c->mon->ws->tag || c->cf & CL_HIDDEN) return;
 
         if (selc && c != selc) grabbuttons(selc->win);
         ungrabbuttons(c->win);
@@ -727,7 +736,7 @@ focusattach(Client *c)
         if (!t) return;
 
         // Reset fullscreen if managed client
-        if (c->cf & CL_MANAGED) unsetfullscreen(c->tag->client_fullscreen);
+        if (c->cf & CL_MANAGED) unsetfullscreen(t->client_fullscreen);
 
         c->nextfocus = NULL;
         c->prevfocus = t->clients_focus;
@@ -813,7 +822,7 @@ updatetagmasteroffset(Monitor *m, int offset)
 {
         if (!m) return;
 
-        Tag *t = m->tag;
+        Tag *t = m->ws->tag;
         if (t->layout->f != MASTER_STACK_LAYOUT) return;
         if (t->clientnum_managed < 2) return;
 
@@ -863,7 +872,7 @@ void
 arrangemon(Monitor *m)
 {
         // Only arrange if we have managed clients
-        Tag *t = m->tag;
+        Tag *t = m->ws->tag;
         if (t->clientnum_managed == 0) return;
 
 
@@ -907,7 +916,7 @@ grabkeys(void)
 void
 key_change_layout(Arg* arg)
 {
-        Tag *t = selmon->tag;
+        Tag *t = selmon->ws->tag;
         if (t->client_fullscreen) return;
 
         // Set new layout index
@@ -924,7 +933,7 @@ key_change_layout(Arg* arg)
 void
 key_update_master_offset(Arg *arg)
 {
-        if (selmon->tag->client_fullscreen) return;
+        if (selmon->ws->tag->client_fullscreen) return;
         updatetagmasteroffset(selmon, arg->i);
         arrangemon(selmon);
 }
@@ -965,8 +974,8 @@ key_fullscreen(Arg* arg)
         else return;
 
         remaptag(t);
-        arrangemon(t->mon);
-        drawbar(t->mon);
+        arrangemon(t->ws->mon);
+        drawbar(t->ws->mon);
 }
 
 void
@@ -985,16 +994,16 @@ key_move_client_to_monitor(Arg *arg)
         else return;
 
         if (tm == selmon) return;
-        if (tm->tag->client_fullscreen) return;
+        if (tm->ws->tag->client_fullscreen) return;
 
         // Move client (win) to target monitor
         move_client_to_monitor(c, tm, NULL);
 
         // Update bartags of target monitor
-        tm->bartags[tm->tag->num * 2] = '*';
+        tm->ws->bartags[tm->ws->tag->num * 2] = '*';
         drawbar(tm);
 
-        setborders(tm->tag);
+        setborders(tm->ws->tag);
 
         arrangemon(tm);
         arrangemon(selmon);
@@ -1008,14 +1017,14 @@ key_move_client_to_tag(Arg *arg)
 {
         if (!selc) return;
         if (arg->ui < 1 || arg->ui > tags_num) return;
-        if ((arg->ui - 1) == selmon->tag->num) return;
+        if ((arg->ui - 1) == selmon->ws->tag->num) return;
 
         Client *c = selc;
         Tag *t = c->tag;
         if (t->client_fullscreen) return;
 
         // Get tag to move the window to
-        Tag *tm = selmon->tags + (arg->ui -1);
+        Tag *tm = selmon->ws->tags + (arg->ui -1);
 
         // Move the client to tag (detach, attach)
         move_client_to_tag(c, tm);
@@ -1024,7 +1033,7 @@ key_move_client_to_tag(Arg *arg)
         unmapclient(c);
 
         // Update bartags
-        selmon->bartags[(arg->ui - 1) * 2] = '*';
+        selmon->ws->bartags[(arg->ui - 1) * 2] = '*';
         drawbar(selmon);
 
         // Arrange the monitor
@@ -1047,7 +1056,7 @@ key_follow_client_to_tag(Arg *arg)
         if (totag < 0) totag = (int) (tags_num - 1);
         else if (totag == tags_num) totag = 0;
 
-        Tag *tm = selmon->tags + totag;
+        Tag *tm = selmon->ws->tags + totag;
         move_client_to_tag(selc, tm);
         focustag(tm);
 }
@@ -1106,11 +1115,11 @@ key_cycle_tag(Arg *arg)
 {
         if (arg->i != 1 && arg->i != -1) return;
 
-        int totag = selmon->tag->num + arg->i;
+        int totag = selmon->ws->tag->num + arg->i;
         if (totag < 0) totag = (int) (tags_num - 1);
         else if (totag == tags_num) totag = 0;
 
-        focustag(selmon->tags + totag);
+        focustag(selmon->ws->tags + totag);
 }
 
 void
@@ -1126,7 +1135,7 @@ key_cycle_monitor(Arg *arg)
         if (m == selmon) return;
 
         focusmon(m);
-        focusclient(m->tag->clients_focus, true);
+        focusclient(m->ws->tag->clients_focus, true);
         XSync(dpy, 0);
 }
 
@@ -1203,9 +1212,9 @@ key_focus_tag(Arg *arg)
         if (arg->ui < 1 || arg->ui > tags_num) return;
 
         unsigned int tagtofocus = arg->ui - 1;
-        if (tagtofocus == selmon->tag->num) return;
+        if (tagtofocus == selmon->ws->tag->num) return;
 
-        focustag(selmon->tags + tagtofocus);
+        focustag(selmon->ws->tags + tagtofocus);
 }
 
 
@@ -1297,7 +1306,7 @@ void
 setborders(Tag *t)
 {
         if (!t || !t->clients) return;
-        if (t != t->mon->tag) return;
+        if (t != t->ws->mon->ws->tag) return;
 
         // Do not set border when fullscreen client
         if (t->client_fullscreen) {
@@ -1410,10 +1419,11 @@ Client*
 wintoclient(Window w)
 {
         for (Monitor *m = mons; m; m = m->next)
-                for (int i = 0; i < tags_num; ++i)
-                        for (Client *c = m->tags[i].clients; c; c = c->next)
-                                if (c->win == w)
-                                        return c;
+                for (Workspace *ws = m->ws; ws; ws = ws->next)
+                        for (int i = 0; i < tags_num; ++i)
+                                for (Client *c = ws->tags[i].clients; c; c = c->next)
+                                        if (c->win == w)
+                                                return c;
 
         return NULL;
 }
@@ -1427,33 +1437,33 @@ wm_detected(Display *dpy, XErrorEvent *ee)
 }
 
 void
-generatebartags(Monitor *m)
+generate_bartags(Workspace *ws, Monitor *m)
 {
         // Create the bartags string which will be displayed in the statusbar
-        m->bartagssize = (tags_num * 2) + 1;
+        ws->bartagssize = (tags_num * 2) + 1;
         // Add monitor indicator ' | n'
-        m->bartagssize += 4;
+        ws->bartagssize += 4;
 
-        m->bartags = (char*)ecalloc(m->bartagssize, 1);
-        m->bartags[m->bartagssize - 1] = '\0';
+        ws->bartags = (char*)ecalloc(ws->bartagssize, 1);
+        ws->bartags[ws->bartagssize - 1] = '\0';
 
         // Add spaces to all tags
         //  1 2 3 4 5 6 7 8 9
         for (int i = 0, j = 0; i < tags_num; ++i) {
-                m->bartags[++j] = *tags[i];
-                m->bartags[i*2] = ' ';
+                ws->bartags[++j] = *tags[i];
+                ws->bartags[i*2] = ' ';
                 j += 1;
         }
 
         // Show monitor number
-        snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
+        snprintf(ws->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
 
         // We start on first tag
-        m->bartags[0] = '>';
+        ws->bartags[0] = '>';
 }
 
 void
-populatemon(Monitor *m, XRRMonitorInfo *info)
+monitor_update(Monitor *m, XRRMonitorInfo *info)
 {
         if (!m || !info) return;
 
@@ -1492,17 +1502,17 @@ updatemons(void)
                 if (overlaying) continue;
 
                 if (!m) {
-                        m = createmon(info + n);
+                        m = monitor_create(info + n);
                         lastmon->next = m;
                         m->prev = lastmon;
                 } else {
-                        populatemon(m, info + n);
+                        monitor_update(m, info + n);
                         updatetagmasteroffset(m, 0);
                 }
                 // Change bartags accordingly
                 m->snum = monitornum++;
-                snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
-                m->bartags[m->tag->num * 2] = n ? '^' : '>';
+                snprintf(m->ws->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
+                m->ws->bartags[m->ws->tag->num * 2] = n ? '^' : '>';
 
                 lastmon = m;
                 m = m->next;
@@ -1517,7 +1527,7 @@ updatemons(void)
                 for (Monitor *nm = m; nm; m = nm) {
                         nm = m->next;
                         // Never destroy first monitor
-                        if (m != mons) destroymon(m, mons);
+                        if (m != mons) monitor_destroy(m, mons);
                 }
 
                 // Update masteroffset of tag because
@@ -1526,8 +1536,8 @@ updatemons(void)
 
                 // Only map client of active tag within
                 // the first monitor (selmon/mons)
-                for (int i = 0; i < tags_num; ++i) remaptag(mons->tags + i);
-                mons->bartags[mons->tag->num * 2] = '>';
+                for (int i = 0; i < tags_num; ++i) remaptag(mons->ws->tags + i);
+                mons->ws->bartags[mons->ws->tag->num * 2] = '>';
         }
 
         XRRFreeMonitors(info);
@@ -1535,59 +1545,81 @@ updatemons(void)
 }
 
 void
-destroymon(Monitor *m, Monitor *tm)
+monitor_destroy(Monitor *m, Monitor *tm)
 {
         // Destroy monitor and move clients
         // to different one
         if (!m || !tm || tm == m) return;
 
-        for (int i = 0; i < tags_num; ++i) {
-                Client *nc = NULL;
-                for (Client *c = m->tags[i].clients; c; c = nc) {
-                        nc = c->next;
-                        move_client_to_monitor(c, tm, tm->tags + i);
-                        tm->bartags[i * 2] = '*';
+        for (Workspace *ws = m->ws; ws; ws = ws->next) {
+                for (int i = 0; i < tags_num; ++i) {
+                        Client *nc = NULL;
+                        for (Client *c = ws->tags[i].clients; c; c = nc) {
+                                nc = c->next;
+                                move_client_to_monitor(c, tm, tm->ws->tags + i);
+                                tm->ws->bartags[i * 2] = '*';
+                        }
                 }
         }
 
         m->prev = m->next = NULL;
         for (int i = 0; i < tags_num; ++i)
-                free(m->tags[i].layout);
-        free(m->tags);
-        free(m->bartags);
+                free(m->ws->tags[i].layout);
+        free(m->ws->tags);
+        free(m->ws->bartags);
+
+        Workspace *ws = m->ws;
+        Workspace *ws_next = ws;
+        for (; ws_next; ws = ws_next) {
+                ws_next = ws_next->next;
+                free(ws);
+        }
         XFree(m->aname);
         free(m);
 }
 
-Monitor*
-createmon(XRRMonitorInfo *info)
+Workspace*
+workspace_create(Monitor *m)
 {
-        Monitor *m = (Monitor*)ecalloc(sizeof(Monitor), 1);
-
-        populatemon(m, info);
-        m->prev = NULL;
-        m->next = NULL;
+        Workspace *ws = (Workspace*)ecalloc(sizeof(Workspace), 1);
+        ws->mon = m;
+        ws->next = NULL;
+        ws->prev = NULL;
 
         // Init the tags
         unsigned long tags_bytes = (tags_num * sizeof(Tag));
-        m->tags = (Tag*)ecalloc(tags_bytes, 1);
+        ws->tags = (Tag*)ecalloc(tags_bytes, 1);
         for (int i = 0; i < tags_num; ++i) {
-                m->tags[i].mon = m;
-                m->tags[i].num = i;
-                m->tags[i].layout = (Layout*) ecalloc(sizeof(Layout), 1);
-                m->tags[i].layout->f = layouts_available[0];
-                m->tags[i].layout->index = 0;
+                ws->tags[i].ws = ws;
+                ws->tags[i].num = i;
+                ws->tags[i].layout = (Layout*) ecalloc(sizeof(Layout), 1);
+                ws->tags[i].layout->f = layouts_available[0];
+                ws->tags[i].layout->index = 0;
         }
-        m->tag = m->tags;
+        ws->tag = ws->tags;
 
         // Generate the bartags string which is displayed inside the statusbar
-        generatebartags(m);
+        generate_bartags(ws, m);
+
+        return ws;
+}
+
+Monitor*
+monitor_create(XRRMonitorInfo *info)
+{
+        Monitor *m = (Monitor*)ecalloc(sizeof(Monitor), 1);
+
+        monitor_update(m, info);
+        m->prev = NULL;
+        m->next = NULL;
+
+        m->ws = workspace_create(m);
 
         return m;
 }
 
 void
-initmons(void)
+initialize_monitors(void)
 {
         mons = NULL;
         lastmon = NULL;
@@ -1597,18 +1629,22 @@ initmons(void)
         if (!info) die("Could not get monitors with Xrandr");
 
         for (int n = 0; n < currentmonnum; ++n) {
-                Monitor *m = createmon(info + n);
+                Monitor *m = monitor_create(info + n);
                 m->snum = n;
 
                 // Update monitor number in statusbar
-                snprintf(m->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
+                snprintf(
+                        m->ws->bartags + (tags_num * 2),
+                        5,
+                        " | %d",
+                        m->snum + 1);
 
                 if (!mons) {
                         mons = m;
                         selmon = m;
                         lastmon = m;
                 } else {
-                        m->bartags[0] = '^';
+                        m->ws->bartags[0] = '^';
                         lastmon->next = m;
                         m->prev = lastmon;
                         lastmon = m;
@@ -1703,7 +1739,7 @@ setup(void)
         createcolor(bordercolor_urgent, &colors.bordercolor_urgent);
 
         // Setup monitors and Tags
-        initmons();
+        initialize_monitors();
 
         // Create statusbar window
         sw = DisplayWidth(dpy, screen);
