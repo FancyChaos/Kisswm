@@ -214,7 +214,7 @@ configurenotify(XEvent *e)
         }
 
         // Update monitor setup
-        updatemons();
+        refresh_monitors();
         focusmon(mons);
 
         // Calculate combined monitor width (screen width)
@@ -597,7 +597,7 @@ remaptag(Tag *t)
 {
         if (!t) return;
 
-        if (t != t->ws->tag) {
+        if (t != t->ws->mon->ws->tag) {
                 // if tag is not the current active tag unmap everything
                 for (Client *c = t->clients; c; c = c->next) unmapclient(c);
         } else if (t->client_fullscreen) {
@@ -1419,7 +1419,7 @@ Client*
 wintoclient(Window w)
 {
         for (Monitor *m = mons; m; m = m->next)
-                for (Workspace *ws = m->ws; ws; ws = ws->next)
+                for (Workspace *ws = m->wss; ws; ws = ws->next)
                         for (int i = 0; i < tags_num; ++i)
                                 for (Client *c = ws->tags[i].clients; c; c = c->next)
                                         if (c->win == w)
@@ -1477,7 +1477,7 @@ monitor_update(Monitor *m, XRRMonitorInfo *info)
 }
 
 void
-updatemons(void)
+refresh_monitors(void)
 {
 
         int mn;
@@ -1551,7 +1551,7 @@ monitor_destroy(Monitor *m, Monitor *tm)
         // to different one
         if (!m || !tm || tm == m) return;
 
-        for (Workspace *ws = m->ws; ws; ws = ws->next) {
+        for (Workspace *ws = m->wss; ws; ws = ws->next) {
                 for (int i = 0; i < tags_num; ++i) {
                         Client *nc = NULL;
                         for (Client *c = ws->tags[i].clients; c; c = nc) {
@@ -1562,20 +1562,8 @@ monitor_destroy(Monitor *m, Monitor *tm)
                 }
         }
 
-        m->prev = m->next = NULL;
-        for (int i = 0; i < tags_num; ++i)
-                free(m->ws->tags[i].layout);
-        free(m->ws->tags);
-        free(m->ws->bartags);
-
-        Workspace *ws = m->ws;
-        Workspace *ws_next = ws;
-        for (; ws_next; ws = ws_next) {
-                ws_next = ws_next->next;
-                free(ws);
-        }
-        XFree(m->aname);
-        free(m);
+        // Free monitor
+        monitor_free(m);
 }
 
 Workspace*
@@ -1604,6 +1592,71 @@ workspace_create(Monitor *m)
         return ws;
 }
 
+void
+workspace_add(Monitor *m)
+{
+        if (!m->wss) {
+                m->wss = workspace_create(m);
+                m->ws = m->wss;
+                return;
+        }
+
+        Workspace *ws = m->ws;
+        for (; ws->next; ws = ws->next);
+        ws->next = workspace_create(m);
+        ws->next->prev = ws;
+
+        workspace_focus(ws->next);
+}
+
+void
+workspace_delete(Workspace *ws)
+{
+        // Do nothing if it is the only workspace
+        if (!ws->prev && !ws->next) return;
+
+        if (ws->next) ws->next->prev = ws->prev;
+        if (ws->prev) ws->prev->next = ws->next;
+
+        // Focus first workspace on a delete
+        workspace_focus(ws->mon->wss);
+
+        workspace_free(ws);
+}
+
+void
+workspace_focus(Workspace *ws)
+{
+        if (ws->mon->ws == ws) return;
+
+        // Current active workspace
+        Workspace *ws_current = ws->mon->ws;
+
+        ws->mon->ws = ws;
+
+        // Remap previous tag
+        remaptag(ws_current->tag);
+
+        remaptag(ws->tag);
+        arrangemon(ws->mon);
+        focusclient(ws->tag->client_fullscreen, true);
+        drawbar(ws->mon);
+}
+
+void
+workspace_free(Workspace *ws)
+{
+        // Free layouts on tags
+        for (int i = 0; i < tags_num; ++i)
+                free(ws->tags[i].layout);
+
+        // Free tags and bartags
+        free(ws->tags);
+        free(ws->bartags);
+
+        free(ws);
+}
+
 Monitor*
 monitor_create(XRRMonitorInfo *info)
 {
@@ -1612,10 +1665,26 @@ monitor_create(XRRMonitorInfo *info)
         monitor_update(m, info);
         m->prev = NULL;
         m->next = NULL;
+        m->wss = NULL;
+        m->ws = NULL;
 
-        m->ws = workspace_create(m);
+        workspace_add(m);
 
         return m;
+}
+
+void
+monitor_free(Monitor *m)
+{
+        // Free workspaces on monitor
+        Workspace *ws_next;
+        for (Workspace *ws = m->wss; ws; ws = ws_next) {
+                ws_next = ws->next;
+                workspace_free(ws);
+        }
+
+        XFree(m->aname);
+        free(m);
 }
 
 void

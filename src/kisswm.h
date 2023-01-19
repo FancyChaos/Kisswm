@@ -136,6 +136,8 @@ struct Monitor {
         Monitor *next;
         Monitor *prev;
         // Workspaces
+        Workspace *wss;
+        // Current workspace
         Workspace *ws;
         int snum;
         int x;
@@ -183,8 +185,6 @@ void            ungrabbuttons(Window w);
 void            createcolor(unsigned long color, Color*);
 void            setborder(Window, int, Color*);
 void            setborders(Tag*);
-void            monitor_update(Monitor *m, XRRMonitorInfo*);
-void            monitor_destroy(Monitor*, Monitor*);
 void            setup(void);
 void            initialize_monitors(void);
 void            grabkeys(void);
@@ -193,16 +193,25 @@ Client*         get_last_managed_client(Tag*);
 Atom            getwinprop(Window, Atom);
 Client*         wintoclient(Window);
 bool            sendevent(Window, Atom);
-Monitor*        monitor_create(XRRMonitorInfo*);
-Workspace*      workspace_create(Monitor*);
 unsigned int    cleanmask(unsigned int);
+
+Monitor*        monitor_create(XRRMonitorInfo*);
+void            monitor_update(Monitor *m, XRRMonitorInfo*);
+void            monitor_destroy(Monitor*, Monitor*);
+void            monitor_free(Monitor*);
+
+Workspace*      workspace_create(Monitor*);
+void            workspace_add(Monitor*);
+void            workspace_delete(Workspace*);
+void            workspace_focus(Workspace*);
+void            workspace_free(Workspace*);
 
 void            hide(Client*);
 void            unhide(Client*);
 void            focustag(Tag*);
 void            updatetagmasteroffset(Monitor*, int);
 void            focusmon(Monitor*);
-void            updatemons(void);
+void            refresh_monitors(void);
 void            remaptag(Tag*);
 void            mapclient(Client*);
 void            unmapclient(Client*);
