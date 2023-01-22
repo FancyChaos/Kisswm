@@ -80,6 +80,11 @@ Key keys[] = {
 
         { MODKEY,                     XK_m,                   key_change_layout,                {0} },
 
+        { MODKEY|ShiftMask,           XK_w,                   key_create_workspace,             {0} },
+        { MODKEY|ShiftMask,           XK_p,                   key_delete_workspace,             {0} },
+        { MODKEY,                     XK_Up,                  key_cycle_workspace,              {.i = 1} },
+        { MODKEY,                     XK_Down,                key_cycle_workspace,              {.i = -1} },
+
         /* Tag keys */
         TAGKEYS(                      XK_1,                                                     1)
         TAGKEYS(                      XK_2,                                                     2)

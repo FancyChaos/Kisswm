@@ -139,6 +139,7 @@ struct Monitor {
         Workspace *wss;
         // Current workspace
         Workspace *ws;
+        uint8_t ws_count;
         int snum;
         int x;
         int y;
@@ -160,6 +161,9 @@ void            key_focus_tag(Arg*);
 void            key_cycle_tag(Arg*);
 void            key_cycle_client(Arg*);
 void            key_cycle_monitor(Arg*);
+void            key_cycle_workspace(Arg*);
+void            key_create_workspace(Arg*);
+void            key_delete_workspace(Arg*);
 void            key_kill_client(Arg*);
 void            key_update_master_offset(Arg*);
 void            key_change_layout(Arg*);
@@ -201,9 +205,8 @@ void            monitor_destroy(Monitor*, Monitor*);
 void            monitor_free(Monitor*);
 
 Workspace*      workspace_create(Monitor*);
-void            workspace_add(Monitor*);
+Workspace*      workspace_add(Monitor*);
 void            workspace_delete(Workspace*);
-void            workspace_focus(Workspace*);
 void            workspace_free(Workspace*);
 
 void            hide(Client*);
@@ -220,7 +223,7 @@ void            unsetfullscreen(Client*);
 void            closeclient(Client*);
 void            generate_bartags(Workspace*, Monitor*);
 void            move_client_to_tag(Client*, Tag*);
-void            move_client_to_monitor(Client*, Monitor*, Tag*);
+void            move_tag_to_tag(Tag*, Tag*);
 void            attach(Client*);
 void            detach(Client*);
 void            focusattach(Client*);

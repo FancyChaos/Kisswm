@@ -4,6 +4,7 @@
 #endif
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <time.h>
 #include <string.h>
 #include <unistd.h>
@@ -478,32 +479,35 @@ focusmon(Monitor *m)
 void
 focustag(Tag *t)
 {
-        // Get monitor of tag and the current selected tag
-        Monitor *m = t->ws->mon;
-        Tag *tc = m->ws->tag;
+        // Get current selected tag
+        Tag *tc = selmon->ws ? selmon->ws->tag : NULL;
 
-        if (m != selmon) focusmon(m);
+        // Focus monitor if it differs from the current selected tag
+        if (tc && t->ws->mon != tc->ws->mon) focusmon(t->ws->mon);
+
+        // Focus workspace
+        t->ws->mon->ws = t->ws;
 
         // Clear old tag identifier in the statusbar
-        if (tc->clientnum) m->ws->bartags[tc->num * 2] = '*';
-        else m->ws->bartags[tc->num * 2] = ' ';
+        if (tc && tc != t && tc->clientnum) tc->ws->bartags[tc->num * 2] = '*';
+        else if (tc && tc != t) tc->ws->bartags[tc->num * 2] = ' ';
 
         // Create new tag identifier in the statusbar
-        m->ws->bartags[t->num * 2] = '>';
+        t->ws->bartags[t->num * 2] = '>';
 
         // Update the current active tag
-        m->ws->tag = t;
+        t->ws->tag = t;
 
         // Redraw both tags
-        remaptag(tc);
+        if (tc && tc != t) remaptag(tc);
         remaptag(t);
 
         // arrange and focus
-        arrangemon(m);
+        arrangemon(t->ws->mon);
         focusclient(t->clients_focus, true);
 
         // Update statusbar (Due to bartags change)
-        drawbar(m);
+        drawbar(t->ws->mon);
         XSync(dpy, 0);
 }
 
@@ -546,22 +550,15 @@ unsetfullscreen(Client *c)
 }
 
 void
-move_client_to_monitor(Client *c, Monitor *m, Tag *t)
+move_tag_to_tag(Tag *t, Tag *tt)
 {
-        if (!c || !m) return;
-
-        // Tag of target monitor to move window to
-        Tag *tt = t ? t : m->ws->tag;
-
-        detach(c);
-        focusdetach(c);
-
-        c->mon = m;
-        c->ws = m->ws;
-        c->tag = tt;
-
-        attach(c);
-        focusattach(c);
+        // Move all Clients of a tag to a different one
+        Client *nc = NULL;
+        for (Client *c = t->clients; c; c = nc) {
+                nc = c->next;
+                move_client_to_tag(c, tt);
+                tt->ws->bartags[t->num * 2] = '*';
+        }
 }
 
 void
@@ -572,8 +569,11 @@ move_client_to_tag(Client *c, Tag *t)
         // Detach client from focus
         focusdetach(c);
 
-        // Assign client to chosen tag
+        // Assign client to targets tag workspace and monitor
+        c->mon = t->ws->mon;
+        c->ws = t->ws;
         c->tag = t;
+
         attach(c);
         focusattach(c);
 }
@@ -914,6 +914,40 @@ grabkeys(void)
 /*** Keybinding fuctions ***/
 
 void
+key_create_workspace(Arg* arg)
+{
+        Workspace *ws = workspace_add(selmon);
+        focustag(ws->tag);
+}
+
+void
+key_delete_workspace(Arg* arg)
+{
+        if (selmon->ws_count == 1) return;
+
+        Workspace *ws = selmon->ws;
+        workspace_delete(ws);
+
+        focustag(selmon->wss->tag);
+}
+
+void
+key_cycle_workspace(Arg* arg)
+{
+        if (selmon->ws_count == 1) return;
+
+        Workspace *ws = NULL;
+        if (arg->i == 1) {
+                ws = selmon->ws->next ? selmon->ws->next : selmon->wss;
+        } else if (arg->i == -1) {
+                ws = selmon->ws->prev;
+                if (!ws) for (ws = selmon->ws; ws->next; ws = ws->next);
+        }
+
+        focustag(ws->tag);
+}
+
+void
 key_change_layout(Arg* arg)
 {
         Tag *t = selmon->ws->tag;
@@ -997,7 +1031,7 @@ key_move_client_to_monitor(Arg *arg)
         if (tm->ws->tag->client_fullscreen) return;
 
         // Move client (win) to target monitor
-        move_client_to_monitor(c, tm, NULL);
+        move_client_to_tag(c, tm->ws->tag);
 
         // Update bartags of target monitor
         tm->ws->bartags[tm->ws->tag->num * 2] = '*';
@@ -1551,16 +1585,10 @@ monitor_destroy(Monitor *m, Monitor *tm)
         // to different one
         if (!m || !tm || tm == m) return;
 
-        for (Workspace *ws = m->wss; ws; ws = ws->next) {
-                for (int i = 0; i < tags_num; ++i) {
-                        Client *nc = NULL;
-                        for (Client *c = ws->tags[i].clients; c; c = nc) {
-                                nc = c->next;
-                                move_client_to_monitor(c, tm, tm->ws->tags + i);
-                                tm->ws->bartags[i * 2] = '*';
-                        }
-                }
-        }
+        for (Workspace *ws = m->wss; ws; ws = ws->next)
+                for (int i = 0; i < tags_num; ++i)
+                        move_tag_to_tag(ws->tags + i, tm->ws->tags + i);
+
 
         // Free monitor
         monitor_free(m);
@@ -1570,13 +1598,12 @@ Workspace*
 workspace_create(Monitor *m)
 {
         Workspace *ws = (Workspace*)ecalloc(sizeof(Workspace), 1);
-        ws->mon = m;
+        ws->mon = NULL;
         ws->next = NULL;
         ws->prev = NULL;
 
         // Init the tags
-        unsigned long tags_bytes = (tags_num * sizeof(Tag));
-        ws->tags = (Tag*)ecalloc(tags_bytes, 1);
+        ws->tags = (Tag*)ecalloc(tags_num * sizeof(Tag), 1);
         for (int i = 0; i < tags_num; ++i) {
                 ws->tags[i].ws = ws;
                 ws->tags[i].num = i;
@@ -1586,61 +1613,53 @@ workspace_create(Monitor *m)
         }
         ws->tag = ws->tags;
 
-        // Generate the bartags string which is displayed inside the statusbar
+        return ws;
+}
+
+Workspace*
+workspace_add(Monitor *m)
+{
+        m->ws_count++;
+
+        Workspace *ws = workspace_create(m);
+        ws->mon = m;
         generate_bartags(ws, m);
+
+        if (!m->wss) {
+                m->wss = ws;
+                m->ws = ws;
+                return ws;
+        }
+
+        Workspace *ws_last = m->ws;
+        for (; ws_last->next; ws_last = ws_last->next);
+        ws_last->next = ws;
+        ws_last->next->prev = ws_last;
 
         return ws;
 }
 
 void
-workspace_add(Monitor *m)
-{
-        if (!m->wss) {
-                m->wss = workspace_create(m);
-                m->ws = m->wss;
-                return;
-        }
-
-        Workspace *ws = m->ws;
-        for (; ws->next; ws = ws->next);
-        ws->next = workspace_create(m);
-        ws->next->prev = ws;
-
-        workspace_focus(ws->next);
-}
-
-void
 workspace_delete(Workspace *ws)
 {
-        // Do nothing if it is the only workspace
-        if (!ws->prev && !ws->next) return;
+        // Do nothing if lonely workspace
+        if (ws->mon->ws_count == 1) return;
+        ws->mon->ws_count--;
+
+        // Update first workspace
+        if (ws == ws->mon->wss) ws->mon->wss = ws->next;
+
+        // Move all leftover clients to the active tag of the first workspace
+        for (int i = 0; i < tags_num; ++i)
+                move_tag_to_tag(ws->tags + i, ws->mon->wss->tags + i);
+
+        // Set active workspace of monitor to NULL if this was the one
+        if (ws == ws->mon->ws) ws->mon->ws = NULL;
 
         if (ws->next) ws->next->prev = ws->prev;
         if (ws->prev) ws->prev->next = ws->next;
 
-        // Focus first workspace on a delete
-        workspace_focus(ws->mon->wss);
-
         workspace_free(ws);
-}
-
-void
-workspace_focus(Workspace *ws)
-{
-        if (ws->mon->ws == ws) return;
-
-        // Current active workspace
-        Workspace *ws_current = ws->mon->ws;
-
-        ws->mon->ws = ws;
-
-        // Remap previous tag
-        remaptag(ws_current->tag);
-
-        remaptag(ws->tag);
-        arrangemon(ws->mon);
-        focusclient(ws->tag->client_fullscreen, true);
-        drawbar(ws->mon);
 }
 
 void
@@ -1667,6 +1686,7 @@ monitor_create(XRRMonitorInfo *info)
         m->next = NULL;
         m->wss = NULL;
         m->ws = NULL;
+        m->ws_count = 0;
 
         workspace_add(m);
 
