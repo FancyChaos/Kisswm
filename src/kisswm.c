@@ -480,17 +480,17 @@ void
 focustag(Tag *t)
 {
         // Get current selected tag
-        Tag *tc = selmon->ws ? selmon->ws->tag : NULL;
+        Tag *tc = selmon->ws->tag;
 
         // Focus monitor if it differs from the current selected tag
-        if (tc && t->ws->mon != tc->ws->mon) focusmon(t->ws->mon);
+        if (t->ws->mon != tc->ws->mon) focusmon(t->ws->mon);
 
         // Focus workspace
         t->ws->mon->ws = t->ws;
 
         // Clear old tag identifier in the statusbar
-        if (tc && tc != t && tc->clientnum) tc->ws->bartags[tc->num * 2] = '*';
-        else if (tc && tc != t) tc->ws->bartags[tc->num * 2] = ' ';
+        if (tc != t && tc->clientnum) tc->ws->bartags[tc->num * 2] = '*';
+        else if (tc != t) tc->ws->bartags[tc->num * 2] = ' ';
 
         // Create new tag identifier in the statusbar
         t->ws->bartags[t->num * 2] = '>';
@@ -499,7 +499,7 @@ focustag(Tag *t)
         t->ws->tag = t;
 
         // Redraw both tags
-        if (tc && tc != t) remaptag(tc);
+        if (tc != t) remaptag(tc);
         remaptag(t);
 
         // arrange and focus
@@ -564,6 +564,9 @@ move_tag_to_tag(Tag *t, Tag *tt)
 void
 move_client_to_tag(Client *c, Tag *t)
 {
+        // Unmapclient if moved to an inactive tag
+        if (t != t->ws->mon->ws->tag) unmapclient(c);
+
         // Detach client from current tag
         detach(c);
         // Detach client from focus
@@ -573,6 +576,9 @@ move_client_to_tag(Client *c, Tag *t)
         c->mon = t->ws->mon;
         c->ws = t->ws;
         c->tag = t;
+
+        // Update bartag if tag is on the active monitor
+        if (selmon == t->ws->mon) t->ws->bartags[t->num * 2] = '*';
 
         attach(c);
         focusattach(c);
@@ -921,12 +927,28 @@ key_create_workspace(Arg* arg)
 }
 
 void
+key_move_client_to_workspace(Arg* arg)
+{
+        if (!selc || selmon->ws_count == 1) return;
+
+        Workspace *ws = NULL;
+        if (arg->i == 1) ws = selmon->ws->next;
+        if (arg->i == -1) ws = selmon->ws->prev;
+
+        if (ws) move_client_to_tag(selc, ws->tags + selc->tag->num);
+
+        arrangemon(selmon);
+        focusclient(selmon->ws->tag->clients_focus, true);
+}
+
+void
 key_delete_workspace(Arg* arg)
 {
         if (selmon->ws_count == 1) return;
 
         Workspace *ws = selmon->ws;
         workspace_delete(ws);
+        selmon->ws = selmon->wss;
 
         focustag(selmon->wss->tag);
 }
@@ -1032,10 +1054,6 @@ key_move_client_to_monitor(Arg *arg)
 
         // Move client (win) to target monitor
         move_client_to_tag(c, tm->ws->tag);
-
-        // Update bartags of target monitor
-        tm->ws->bartags[tm->ws->tag->num * 2] = '*';
-        drawbar(tm);
 
         setborders(tm->ws->tag);
 

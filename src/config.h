@@ -84,6 +84,9 @@ Key keys[] = {
         { MODKEY|ShiftMask,           XK_p,                   key_delete_workspace,             {0} },
         { MODKEY,                     XK_Up,                  key_cycle_workspace,              {.i = 1} },
         { MODKEY,                     XK_Down,                key_cycle_workspace,              {.i = -1} },
+        { MODKEY|ShiftMask,           XK_Up,                  key_move_client_to_workspace,     {.i = 1} },
+        { MODKEY|ShiftMask,           XK_Down,                key_move_client_to_workspace,     {.i = -1} },
+
 
         /* Tag keys */
         TAGKEYS(                      XK_1,                                                     1)
