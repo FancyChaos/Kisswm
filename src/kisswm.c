@@ -48,27 +48,28 @@ buttonpress(XEvent *e)
 
         XAllowEvents(dpy, ReplayPointer, CurrentTime);
 
-        if (ev->window == root) {
-                for (Monitor *m = mons; m; m = m->next) {
-                        if (ev->x_root <= (m->x + m->width)) {
-                                if (m != selmon) {
-                                        focusmon(m);
-                                        focusclient(
-                                                m->ws->tag->clients_focus,
-                                                false);
-                                }
-                                break;
-                        }
-                }
+        if (ev->window != root) {
+                Client *c = wintoclient(ev->window);
+                if (!c) return;
+
+                if (selmon != c->mon) focusmon(c->mon);
+                focusclient(c, false);
+                setborders(c->tag);
+
                 return;
         }
 
-        Client *c = wintoclient(ev->window);
-        if (!c) return;
+        // Mouse click on root window
+        // Focus appropriate monitor
+        for (Monitor *m = mons; m; m = m->next) {
+                if (selmon == m) continue;
 
-        if (selmon != c->mon) focusmon(c->mon);
-        focusclient(c, false);
-        setborders(c->tag);
+                if (ev->x_root >= m->x && ev->x_root <= m->x + m->width) {
+                        focusmon(m);
+                        focusclient( m->ws->tag->clients_focus, false);
+                        break;
+                }
+        }
 }
 
 void
@@ -97,8 +98,8 @@ clientmessage(XEvent *e)
         } else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_win_states[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_win_states[NET_FULLSCREEN]) {
-                            // Ignore request if clients tag
-                            // is not the selected one
+                            // Ignore request if the client
+                            // is not on an active tag
                             if (c->tag != c->mon->ws->tag) return;
 
                             Client *fc = c->tag->client_fullscreen;
