@@ -1812,6 +1812,10 @@ setup(void)
         net_win_states[NET_FULLSCREEN] = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
         net_win_states[NET_HIDDEN] = XInternAtom(dpy, "_NET_WM_STATE_HIDDEN", False);
 
+        Atom supported_atoms[NET_END + NET_STATES_END];
+        memcpy(supported_atoms, net_atoms, NET_END * sizeof(Atom));
+        memcpy(supported_atoms, net_win_states, NET_STATES_END * sizeof(Atom));
+
         // Set supported net atoms
         XChangeProperty(
                 dpy,
@@ -1820,7 +1824,7 @@ setup(void)
                 XA_ATOM,
                 32,
                 PropModeReplace,
-                (unsigned char*) net_atoms,
+                (unsigned char*) supported_atoms,
                 NET_END);
 
         // Create global visual
@@ -1891,7 +1895,8 @@ setup(void)
         barstatus[0] = '\0';
         updatebars();
 
-        // Set supporting net atoms to the statusbar
+        // Set the "supporting" net atom to the statusbar (first child window)
+        // and root window. This is property to indicate that the WM is active
         XChangeProperty(
                 dpy,
                 root,
