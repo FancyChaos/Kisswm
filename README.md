@@ -67,6 +67,12 @@ which is the *super key*/*Windows key* on the keyboard.
 | `MOD` + `Shift` + `j`         | Move client down in stack            |
 | `MOD` + `l`                   | Increase master area (layout)        |
 | `MOD` + `h`                   | Decrease master area (layout)        |
+| `MOD` + `Shift` + `w`         | Create and focus a workspace         |
+| `MOD` + `Shift` + `p`         | Delete current workspace             |
+| `MOD` + `up`                  | Focus next workspace                 |
+| `MOD` + `down`                | Focus previous workspace             |
+| `MOD` + `Shift` `up`          | Move client to next workspace        |
+| `MOD` + `Shift` `down`        | Move client to previous workspace    |
 
 ## Utilities
 
@@ -86,7 +92,7 @@ be hidden till the application terminates.
 ## Roadmap
 
 - [x] Add DWM like swallowing mode
-- [ ] Add workspaces (Like virtual monitors)
+- [x] Add workspaces (Like virtual monitors)
 - [ ] Add full floating support (Be a dynamic window manager)
 - [ ] Add option to use a different statusbar than the built-in one
 
