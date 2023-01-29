@@ -83,6 +83,7 @@ struct Statusbar {
         int depth;
         int width;
         int height;
+        char wm_name[256];
 };
 
 struct Client {
@@ -126,8 +127,10 @@ struct Workspace {
         Monitor *mon;
         Tag *tags;
         Tag *tag;
-        char *bartags;
-        unsigned long bartagssize;
+        // State of the workspace as string. Will be displayed in the statusbar
+        char *state;
+        // Size of the state string
+        unsigned long state_size;
 };
 
 struct Monitor {
@@ -208,6 +211,7 @@ void            monitor_free(Monitor*);
 Workspace*      workspace_create(Monitor*);
 Workspace*      workspace_add(Monitor*);
 void            workspace_delete(Workspace*);
+void            workspace_update_state(Workspace*);
 void            workspace_free(Workspace*);
 
 void            hide(Client*);
@@ -222,7 +226,6 @@ void            unmapclient(Client*);
 void            setfullscreen(Client*);
 void            unsetfullscreen(Client*);
 void            closeclient(Client*);
-void            generate_bartags(Workspace*, Monitor*);
 void            move_client_to_tag(Client*, Tag*);
 void            move_tag_to_tag(Tag*, Tag*);
 void            attach(Client*);
@@ -236,9 +239,9 @@ void            arrangemon(Monitor*);
 void            set_window_size(Window, int, int, int, int);
 void            set_client_size(Client*, int, int, int, int);
 
-void            updatebars(void);
-void            updatestatustext(void);
-void            drawbar(Monitor*);
+void            statusbar_update(void);
+void            statusbar_update_wm_name(void);
+void            statusbar_draw(Monitor*);
 
 void (*handler[LASTEvent])(XEvent*) = {
         [KeyPress] = keypress,
@@ -274,5 +277,3 @@ int screen;
 int sw;
 int currentmonnum;
 long long monupdatetime = 0;
-
-char barstatus[256];

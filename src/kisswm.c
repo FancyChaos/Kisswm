@@ -92,9 +92,10 @@ clientmessage(XEvent *e)
 
         if (ev->message_type == net_atoms[NET_ACTIVE] &&
             c->tag != selmon->ws->tag) {
-                c->ws->bartags[c->tag->num * 2] = '!';
+                c->ws->state[c->tag->num * 2] = '!';
                 c->cf |= CL_URGENT;
                 setborders(c->tag);
+                statusbar_draw(c->mon);
         } else if (ev->message_type == net_atoms[NET_STATE]) {
                 if (ev->data.l[1] == net_win_states[NET_FULLSCREEN] ||
                     ev->data.l[2] == net_win_states[NET_FULLSCREEN]) {
@@ -122,7 +123,7 @@ clientmessage(XEvent *e)
                             }
                             remaptag(c->tag);
                             arrangemon(c->mon);
-                            drawbar(c->mon);
+                            statusbar_draw(c->mon);
                 } else if (ev->data.l[1] == net_win_states[NET_HIDDEN]) {
                         // Hide window if requested
                         switch (ev->data.l[0]) {
@@ -197,7 +198,7 @@ maprequest(XEvent *e)
         // Focus new client
         focusclient(c, true);
 
-        drawbar(c->mon);
+        statusbar_draw(c->mon);
 
         XSelectInput(dpy, c->win, EnterWindowMask);
 }
@@ -228,7 +229,7 @@ configurenotify(XEvent *e)
         // Update statusbar to new width of combined monitors
         statusbar.width = sw;
         set_window_size(statusbar.win, statusbar.width, statusbar.height, 0, 0);
-        updatebars();
+        statusbar_update();
 
         focusclient(selmon->ws->tag->clients_focus, true);
 
@@ -239,7 +240,10 @@ void
 propertynotify(XEvent *e)
 {
         XPropertyEvent *ev = &e->xproperty;
-        if ((ev->window == root) && (ev->atom == XA_WM_NAME)) updatebars();
+        if ((ev->window == root) && (ev->atom == XA_WM_NAME)) {
+                statusbar_update_wm_name();
+                for (Monitor *m = mons; m; m = m->next) statusbar_draw(m);
+        }
 }
 
 void
@@ -300,16 +304,8 @@ onxerror(Display *dpy, XErrorEvent *ee)
 
 /*** Statusbar functions ***/
 
-
 void
-updatebars(void)
-{
-        updatestatustext();
-        for (Monitor *m = mons; m; m = m->next) drawbar(m);
-}
-
-void
-drawbar(Monitor *m)
+statusbar_draw(Monitor *m)
 {
         // Clear bar section
         XClearArea(
@@ -336,59 +332,70 @@ drawbar(Monitor *m)
                 (unsigned int) m->width,
                 (unsigned int) statusbar.height);
 
-        int bartagslen = (int) strnlen(m->ws->bartags, m->ws->bartagssize);
-        int barstatuslen = (int) strnlen(barstatus, sizeof(barstatus));
+        int state_len = (int) strnlen(m->ws->state, m->ws->state_size);
+        int wm_name_len = (int) strnlen(
+                statusbar.wm_name,
+                sizeof(statusbar.wm_name));
 
-        // Get glyph information about statusbartags (Dimensions of text)
+        // Get glyph information about the state string (Dimensions of text)
         XftTextExtentsUtf8(
                 dpy,
                 xfont,
-                (XftChar8 *) m->ws->bartags,
-                bartagslen,
+                (XftChar8 *) m->ws->state,
+                state_len,
                 &xglyph);
         int baroffset = xglyph.y + ((statusbar.height - xglyph.height) / 2);
 
-        // Draw statusbartags text
+        // Draw state text
         XftDrawStringUtf8(
                 statusbar.xdraw,
                 &colors.barfg.xft_color,
                 xfont,
                 m->x,
                 m->y + baroffset,
-                (XftChar8 *) m->ws->bartags,
-                bartagslen);
+                (XftChar8 *) m->ws->state,
+                state_len);
 
-        if (barstatus[0] == '\0') {
+        if (statusbar.wm_name[0] == '\0') {
                 XSync(dpy, 0);
                 return;
         }
 
-        // Get glyph information about statusbarstatus (Dimensions of text)
+        // Get glyph information about root window name (Dimensions of text)
         XftTextExtentsUtf8 (
                 dpy,
                 xfont,
-                (XftChar8 *) barstatus,
-                barstatuslen,
+                (XftChar8 *) statusbar.wm_name,
+                wm_name_len,
                 &xglyph);
 
-        // Draw statubarstatus
+        // Draw root window name (wm_name) to the statusbar
         XftDrawStringUtf8(
                 statusbar.xdraw,
                 &colors.barfg.xft_color,
                 xfont,
                 m->x + (m->width - xglyph.width),
                 m->y + baroffset,
-                (XftChar8 *) barstatus,
-                barstatuslen);
+                (XftChar8 *) statusbar.wm_name,
+                wm_name_len);
 
         XSync(dpy, 0);
 }
 
 void
-updatestatustext(void)
+statusbar_update(void)
 {
-        // Reset barstatus
-        barstatus[0] = '\0';
+        for (Monitor *m = mons; m; m = m->next) {
+                workspace_update_state(m->ws);
+                statusbar_draw(m);
+        }
+}
+
+void
+statusbar_update_wm_name(void)
+{
+        // Reset window root name (wm_name)
+        statusbar.wm_name[0] = '\0';
 
         XTextProperty pwmname;
         if (!XGetWMName(dpy, root, &pwmname)) {
@@ -398,13 +405,18 @@ updatestatustext(void)
                     &pwmname,
                     net_atoms[NET_WM_NAME])
                 ) {
-                        strlcpy(barstatus, "Kisswm\0", sizeof(barstatus));
+                        strlcpy(statusbar.wm_name,
+                                "Kisswm\0",
+                                sizeof(statusbar.wm_name));
                         return;
                 }
         }
 
-        if (pwmname.encoding == XA_STRING || pwmname.encoding == ATOM_UTF8)
-                strlcpy(barstatus, (char*)pwmname.value, sizeof(barstatus));
+        if (pwmname.encoding == XA_STRING || pwmname.encoding == ATOM_UTF8) {
+                strlcpy(statusbar.wm_name,
+                        (char*) pwmname.value,
+                        sizeof(statusbar.wm_name));
+        }
 
         XFree(pwmname.value);
 }
@@ -460,13 +472,13 @@ focusmon(Monitor *m)
         // Previous monitor
         Monitor *pm = selmon;
 
-        // Update bartags of previous focused monitor
-        pm->ws->bartags[pm->ws->tag->num * 2] = '^';
-        drawbar(pm);
+        // Update state of previous focused monitor
+        pm->ws->state[pm->ws->tag->num * 2] = '^';
+        statusbar_draw(pm);
 
-        // Update bartags of monitor to focus
-        m->ws->bartags[m->ws->tag->num * 2] = '>';
-        drawbar(m);
+        // Update state of monitor to focus
+        m->ws->state[m->ws->tag->num * 2] = '>';
+        statusbar_draw(m);
 
         // Set current monitor
         selmon = m;
@@ -489,13 +501,6 @@ focustag(Tag *t)
         // Focus workspace
         t->ws->mon->ws = t->ws;
 
-        // Clear old tag identifier in the statusbar
-        if (tc != t && tc->clientnum) tc->ws->bartags[tc->num * 2] = '*';
-        else if (tc != t) tc->ws->bartags[tc->num * 2] = ' ';
-
-        // Create new tag identifier in the statusbar
-        t->ws->bartags[t->num * 2] = '>';
-
         // Update the current active tag
         t->ws->tag = t;
 
@@ -507,8 +512,9 @@ focustag(Tag *t)
         arrangemon(t->ws->mon);
         focusclient(t->clients_focus, true);
 
-        // Update statusbar (Due to bartags change)
-        drawbar(t->ws->mon);
+        // Update statusbar (Due to state change)
+        statusbar_update();
+
         XSync(dpy, 0);
 }
 
@@ -558,7 +564,7 @@ move_tag_to_tag(Tag *t, Tag *tt)
         for (Client *c = t->clients; c; c = nc) {
                 nc = c->next;
                 move_client_to_tag(c, tt);
-                tt->ws->bartags[t->num * 2] = '*';
+                tt->ws->state[t->num * 2] = '*';
         }
 }
 
@@ -579,7 +585,7 @@ move_client_to_tag(Client *c, Tag *t)
         c->tag = t;
 
         // Update bartag if tag is on the active monitor
-        if (selmon == t->ws->mon) t->ws->bartags[t->num * 2] = '*';
+        if (selmon == t->ws->mon) t->ws->state[t->num * 2] = '*';
 
         attach(c);
         focusattach(c);
@@ -639,7 +645,7 @@ closeclient(Client *c)
         free(c);
 
         // Clear statusbar if last client and not focused
-        if (!t->clientnum && t != m->ws->tag) m->ws->bartags[t->num * 2] = ' ';
+        if (!t->clientnum && t != m->ws->tag) m->ws->state[t->num * 2] = ' ';
 
         // if the tag where client closed is active (seen)
         if (t == m->ws->tag) {
@@ -647,7 +653,7 @@ closeclient(Client *c)
                 arrangemon(m);
                 focusclient(t->clients_focus, true);
         }
-        drawbar(m);
+        statusbar_draw(m);
 }
 
 void
@@ -1032,7 +1038,7 @@ key_fullscreen(Arg* arg)
 
         remaptag(t);
         arrangemon(t->ws->mon);
-        drawbar(t->ws->mon);
+        statusbar_draw(t->ws->mon);
 }
 
 void
@@ -1085,9 +1091,9 @@ key_move_client_to_tag(Arg *arg)
         // Unmap moved client
         unmapclient(c);
 
-        // Update bartags
-        selmon->ws->bartags[(arg->ui - 1) * 2] = '*';
-        drawbar(selmon);
+        // Update state
+        workspace_update_state(selmon->ws);
+        statusbar_draw(selmon);
 
         // Arrange the monitor
         arrangemon(selmon);
@@ -1490,32 +1496,6 @@ wm_detected(Display *dpy, XErrorEvent *ee)
 }
 
 void
-generate_bartags(Workspace *ws, Monitor *m)
-{
-        // Create the bartags string which will be displayed in the statusbar
-        ws->bartagssize = (tags_num * 2) + 1;
-        // Add monitor indicator ' | n'
-        ws->bartagssize += 4;
-
-        ws->bartags = (char*)ecalloc(ws->bartagssize, 1);
-        ws->bartags[ws->bartagssize - 1] = '\0';
-
-        // Add spaces to all tags
-        //  1 2 3 4 5 6 7 8 9
-        for (int i = 0, j = 0; i < tags_num; ++i) {
-                ws->bartags[++j] = *tags[i];
-                ws->bartags[i*2] = ' ';
-                j += 1;
-        }
-
-        // Show monitor number
-        snprintf(ws->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
-
-        // We start on first tag
-        ws->bartags[0] = '>';
-}
-
-void
 monitor_update(Monitor *m, XRRMonitorInfo *info)
 {
         if (!m || !info) return;
@@ -1562,11 +1542,8 @@ refresh_monitors(void)
                         monitor_update(m, info + n);
                         updatetagmasteroffset(m, 0);
                 }
-                // Change bartags accordingly
-                m->snum = monitornum++;
-                snprintf(m->ws->bartags + (tags_num * 2), 5, " | %d", m->snum + 1);
-                m->ws->bartags[m->ws->tag->num * 2] = n ? '^' : '>';
 
+                m->snum = monitornum++;
                 lastmon = m;
                 m = m->next;
         }
@@ -1590,7 +1567,6 @@ refresh_monitors(void)
                 // Only map client of active tag within
                 // the first monitor (selmon/mons)
                 for (int i = 0; i < tags_num; ++i) remaptag(mons->ws->tags + i);
-                mons->ws->bartags[mons->ws->tag->num * 2] = '>';
         }
 
         XRRFreeMonitors(info);
@@ -1617,7 +1593,7 @@ Workspace*
 workspace_create(Monitor *m)
 {
         Workspace *ws = (Workspace*)ecalloc(sizeof(Workspace), 1);
-        ws->mon = NULL;
+        ws->mon = m;
         ws->next = NULL;
         ws->prev = NULL;
 
@@ -1632,6 +1608,25 @@ workspace_create(Monitor *m)
         }
         ws->tag = ws->tags;
 
+        // Build the tags state string which
+        // will be displayed in the statusbar
+        ws->state_size = (tags_num * 2) + 1;
+        // Add monitor indicator ' | n'
+        ws->state_size += 4;
+
+        ws->state = (char*)ecalloc(ws->state_size, 1);
+        ws->state[ws->state_size - 1] = '\0';
+
+        // Add spaces to all tags
+        //  1 2 3 4 5 6 7 8 9
+        for (int i = 0, j = 0; i < tags_num; ++i) {
+                ws->state[++j] = *tags[i];
+                ws->state[i*2] = ' ';
+                j += 1;
+        }
+
+        workspace_update_state(ws);
+
         return ws;
 }
 
@@ -1641,8 +1636,6 @@ workspace_add(Monitor *m)
         m->ws_count++;
 
         Workspace *ws = workspace_create(m);
-        ws->mon = m;
-        generate_bartags(ws, m);
 
         if (!m->wss) {
                 m->wss = ws;
@@ -1680,6 +1673,22 @@ workspace_delete(Workspace *ws)
 
         workspace_free(ws);
 }
+void
+workspace_update_state(Workspace *ws)
+{
+        // Update clients indicator
+        for (size_t i = 0; i < tags_num; ++i)
+                ws->state[i * 2] = ws->tags[i].clientnum ? '*' : ' ';
+
+        // Update active tag indicator
+        ws->state[ws->tag->num * 2] = ws->mon == selmon ? '>' : '^';
+
+        // Show monitor number
+        snprintf(ws->state + (tags_num * 2), 5, " | %d", ws->mon->snum + 1);
+
+        // Append terminating null at the end
+        ws->state[ws->state_size - 1] = '\0';
+}
 
 void
 workspace_free(Workspace *ws)
@@ -1688,9 +1697,9 @@ workspace_free(Workspace *ws)
         for (int i = 0; i < tags_num; ++i)
                 free(ws->tags[i].layout);
 
-        // Free tags and bartags
+        // Free tags and state
         free(ws->tags);
-        free(ws->bartags);
+        free(ws->state);
 
         free(ws);
 }
@@ -1740,25 +1749,18 @@ initialize_monitors(void)
                 Monitor *m = monitor_create(info + n);
                 m->snum = n;
 
-                // Update monitor number in statusbar
-                snprintf(
-                        m->ws->bartags + (tags_num * 2),
-                        5,
-                        " | %d",
-                        m->snum + 1);
-
                 if (!mons) {
                         mons = m;
                         selmon = m;
                         lastmon = m;
                 } else {
-                        m->ws->bartags[0] = '^';
                         lastmon->next = m;
                         m->prev = lastmon;
                         lastmon = m;
                 }
         }
 
+        statusbar_update();
         XRRFreeMonitors(info);
 }
 
@@ -1850,9 +1852,6 @@ setup(void)
         createcolor(bordercolor_inactive, &colors.bordercolor_inactive);
         createcolor(bordercolor_urgent, &colors.bordercolor_urgent);
 
-        // Setup monitors and Tags
-        initialize_monitors();
-
         // Create statusbar window
         sw = DisplayWidth(dpy, screen);
 
@@ -1891,10 +1890,6 @@ setup(void)
                             statusbar.cmap);
         XMapRaised(dpy, statusbar.win);
 
-        // Create statusbars
-        barstatus[0] = '\0';
-        updatebars();
-
         // Set the "supporting" net atom to the statusbar (first child window)
         // and root window. This is property to indicate that the WM is active
         XChangeProperty(
@@ -1925,7 +1920,7 @@ setup(void)
                 (unsigned char*) "kisswm",
                 6);
 
-
+        initialize_monitors();
         arrange();
         grabkeys();
         focusmon(selmon);
