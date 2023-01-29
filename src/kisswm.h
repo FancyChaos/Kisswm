@@ -127,6 +127,8 @@ struct Workspace {
         Monitor *mon;
         Tag *tags;
         Tag *tag;
+        // Workspace number
+        uint8_t num;
         // State of the workspace as string. Will be displayed in the statusbar
         char *state;
         // Size of the state string

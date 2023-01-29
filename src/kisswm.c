@@ -930,6 +930,8 @@ void
 key_create_workspace(Arg* arg)
 {
         Workspace *ws = workspace_add(selmon);
+        if (!ws) return;
+
         focustag(ws->tag);
 }
 
@@ -1596,6 +1598,7 @@ workspace_create(Monitor *m)
         ws->mon = m;
         ws->next = NULL;
         ws->prev = NULL;
+        ws->num = 0;
 
         // Init the tags
         ws->tags = (Tag*)ecalloc(tags_num * sizeof(Tag), 1);
@@ -1611,8 +1614,9 @@ workspace_create(Monitor *m)
         // Build the tags state string which
         // will be displayed in the statusbar
         ws->state_size = (tags_num * 2) + 1;
-        // Add monitor indicator ' | n'
-        ws->state_size += 4;
+        // Add space for monitor (m) and workspace (w) indicator:
+        // ' | m-w'
+        ws->state_size += 6;
 
         ws->state = (char*)ecalloc(ws->state_size, 1);
         ws->state[ws->state_size - 1] = '\0';
@@ -1633,9 +1637,11 @@ workspace_create(Monitor *m)
 Workspace*
 workspace_add(Monitor *m)
 {
+        if (m->ws_count >= 9) return NULL;
         m->ws_count++;
 
         Workspace *ws = workspace_create(m);
+        ws->num = m->ws_count;
 
         if (!m->wss) {
                 m->wss = ws;
@@ -1657,6 +1663,9 @@ workspace_delete(Workspace *ws)
         // Do nothing if lonely workspace
         if (ws->mon->ws_count == 1) return;
         ws->mon->ws_count--;
+
+        // Reduce number for every following workspace (indicator)
+        for (Workspace *w = ws->next; w; w = w->next) --w->num;
 
         // Update first workspace
         if (ws == ws->mon->wss) ws->mon->wss = ws->next;
@@ -1683,8 +1692,8 @@ workspace_update_state(Workspace *ws)
         // Update active tag indicator
         ws->state[ws->tag->num * 2] = ws->mon == selmon ? '>' : '^';
 
-        // Show monitor number
-        snprintf(ws->state + (tags_num * 2), 5, " | %d", ws->mon->snum + 1);
+        // Show monitor and workspace number
+        snprintf(ws->state + (tags_num * 2), 7, " | %d-%d", ws->mon->snum + 1, ws->num);
 
         // Append terminating null at the end
         ws->state[ws->state_size - 1] = '\0';
@@ -1716,7 +1725,8 @@ monitor_create(XRRMonitorInfo *info)
         m->ws = NULL;
         m->ws_count = 0;
 
-        workspace_add(m);
+        if(!workspace_add(m))
+                die("Could not create workspace while creating a monitor");
 
         return m;
 }
