@@ -513,7 +513,12 @@ focustag(Tag *t)
         focusclient(t->clients_focus, true);
 
         // Update statusbar (Due to state change)
-        statusbar_update();
+        workspace_update_state(t->ws);
+        statusbar_draw(t->ws->mon);
+        if (tc->ws->mon != t->ws->mon) {
+                workspace_update_state(tc->ws);
+                statusbar_draw(tc->ws->mon);
+        }
 
         XSync(dpy, 0);
 }
@@ -572,7 +577,8 @@ void
 move_client_to_tag(Client *c, Tag *t)
 {
         // Unmapclient if moved to an inactive tag
-        if (t != t->ws->mon->ws->tag) unmapclient(c);
+        Tag *tag_active = t->ws->mon->ws->tag;
+        if (t != tag_active) unmapclient(c);
 
         // Detach client from current tag
         detach(c);
@@ -584,8 +590,9 @@ move_client_to_tag(Client *c, Tag *t)
         c->ws = t->ws;
         c->tag = t;
 
-        // Update bartag if tag is on the active monitor
-        if (selmon == t->ws->mon) t->ws->state[t->num * 2] = '*';
+        // Update state if workspace of tag is active
+        if (t->ws == t->ws->mon->ws && t != tag_active)
+                t->ws->state[t->num * 2] = '*';
 
         attach(c);
         focusattach(c);
@@ -644,16 +651,16 @@ closeclient(Client *c)
         focusdetach(c);
         free(c);
 
-        // Clear statusbar if last client and not focused
-        if (!t->clientnum && t != m->ws->tag) m->ws->state[t->num * 2] = ' ';
+        // Clear statusbar if last client and not active
+        if (!t->clientnum && t != m->ws->tag) t->ws->state[t->num * 2] = ' ';
 
         // if the tag where client closed is active (seen)
         if (t == m->ws->tag) {
+                statusbar_draw(m);
                 remaptag(t);
                 arrangemon(m);
-                focusclient(t->clients_focus, true);
+                if (m == selmon) focusclient(t->clients_focus, true);
         }
-        statusbar_draw(m);
 }
 
 void
@@ -1090,18 +1097,13 @@ key_move_client_to_tag(Arg *arg)
         // Move the client to tag (detach, attach)
         move_client_to_tag(c, tm);
 
-        // Unmap moved client
-        unmapclient(c);
-
-        // Update state
-        workspace_update_state(selmon->ws);
-        statusbar_draw(selmon);
-
         // Arrange the monitor
         arrangemon(selmon);
 
         // Focus previous client
         focusclient(t->clients_focus, true);
+
+        statusbar_draw(selmon);
 }
 
 void
@@ -1686,8 +1688,25 @@ void
 workspace_update_state(Workspace *ws)
 {
         // Update clients indicator
-        for (size_t i = 0; i < tags_num; ++i)
-                ws->state[i * 2] = ws->tags[i].clientnum ? '*' : ' ';
+        for (size_t i = 0; i < tags_num; ++i) {
+                // Ignore active tag
+                if (ws->tags + i == ws->tag) continue;
+
+                if (!ws->tags[i].clientnum) {
+                        ws->state[i * 2] = ' ';
+                        continue;
+                }
+
+                ws->state[i * 2] = '*';
+
+                // Check for an urgent client
+                for (Client *c = ws->tags[i].clients; c; c = c->next) {
+                        if (c->cf & CL_URGENT) {
+                                ws->state[i * 2] = '!';
+                                break;
+                        }
+                }
+        }
 
         // Update active tag indicator
         ws->state[ws->tag->num * 2] = ws->mon == selmon ? '>' : '^';
@@ -1931,10 +1950,9 @@ setup(void)
                 6);
 
         initialize_monitors();
-        arrange();
         grabkeys();
         focusmon(selmon);
-        focusclient(NULL, true);
+        focustag(selmon->ws->tag);
 
         XSync(dpy, 0);
 }
