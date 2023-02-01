@@ -473,8 +473,10 @@ focusmon(Monitor *m)
         Monitor *pm = selmon;
 
         // Update state of previous focused monitor
-        pm->ws->state[pm->ws->tag->num * 2] = '^';
-        statusbar_draw(pm);
+        if (pm != m) {
+                pm->ws->state[pm->ws->tag->num * 2] = '^';
+                statusbar_draw(pm);
+        }
 
         // Update state of monitor to focus
         m->ws->state[m->ws->tag->num * 2] = '>';
@@ -569,7 +571,6 @@ move_tag_to_tag(Tag *t, Tag *tt)
         for (Client *c = t->clients; c; c = nc) {
                 nc = c->next;
                 move_client_to_tag(c, tt);
-                tt->ws->state[t->num * 2] = '*';
         }
 }
 
@@ -590,7 +591,7 @@ move_client_to_tag(Client *c, Tag *t)
         c->ws = t->ws;
         c->tag = t;
 
-        // Update state if workspace of tag is active
+        // Update state if workspace of tag is active but tag is not
         if (t->ws == t->ws->mon->ws && t != tag_active)
                 t->ws->state[t->num * 2] = '*';
 
@@ -652,11 +653,15 @@ closeclient(Client *c)
         free(c);
 
         // Clear statusbar if last client and not active
-        if (!t->clientnum && t != m->ws->tag) t->ws->state[t->num * 2] = ' ';
+        if (!t->clientnum && t != m->ws->tag) {
+                t->ws->state[t->num * 2] = ' ';
+                // Redraw bar if workspace of tag is active
+                if (t->ws == m->ws) statusbar_draw(m);
+                return;
+        }
 
         // if the tag where client closed is active (seen)
         if (t == m->ws->tag) {
-                statusbar_draw(m);
                 remaptag(t);
                 arrangemon(m);
                 if (m == selmon) focusclient(t->clients_focus, true);
