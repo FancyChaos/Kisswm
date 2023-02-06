@@ -6,12 +6,16 @@
 
 - Basic ICCM/EWMH compliance
 - Built-in statusbar
-  - Displays the root window name (can be used with dwmblocks)
+  - Displays monitor/workspace/tags information
+  - Displays the root window name (e.g. can be used with dwmblocks)
 - Common navigation functionalities
 - Multiple tiling layouts switchable per tag
   - Stack
   - Master stack
   - Side by side
+- Hide clients by setting the window property *_NET_WM_STATE_HIDDEN*
+  - *kswallow* can be used to hide the client when executing an application via the terminal
+- Support for multiple workspaces per monitor
 - Basic multi-monitor support
 - Window borders and custom border colors
 
