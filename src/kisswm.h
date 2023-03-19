@@ -184,15 +184,16 @@ void            clientmessage(XEvent*);
 void            mappingnotify(XEvent*);
 void            buttonpress(XEvent*);
 void            enternotify(XEvent*);
+void            motionnotify(XEvent*);
 
 void            run(void);
 int             onxerror(Display*, XErrorEvent*);
 int             wm_detected(Display*, XErrorEvent*);
-void            grabbutton(Window w, unsigned int button);
-void            grabbuttons(Window w);
-void            ungrabbutton(Window w, unsigned int button);
-void            ungrabbuttons(Window w);
-void            createcolor(unsigned long color, Color*);
+void            grabbutton(Window, unsigned int, unsigned int);
+void            grabbuttons(Window);
+void            ungrabbutton(Window, unsigned int);
+void            ungrabbuttons(Window);
+void            createcolor(unsigned long, Color*);
 void            setborder(Window, int, Color*);
 void            setborders(Tag*);
 void            setup(void);
@@ -259,7 +260,8 @@ void (*handler[LASTEvent])(XEvent*) = {
         [DestroyNotify] = destroynotify,
         [ClientMessage] = clientmessage,
         [ButtonPress] = buttonpress,
-        [EnterNotify] = enternotify
+        [EnterNotify] = enternotify,
+        [MotionNotify] = motionnotify
 };
 
 Atom ATOM_UTF8;

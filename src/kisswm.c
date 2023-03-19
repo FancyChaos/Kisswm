@@ -33,8 +33,15 @@ size_t layouts_num = sizeof(layouts_available)/sizeof(layouts_available[0]);
 /*** X11 Eventhandling ****/
 
 void
+motionnotify(XEvent *e)
+{
+        printf("Motion NOtify!\n");
+}
+
+void
 enternotify(XEvent *e)
 {
+        printf("Enter Notify\n");
         XCrossingEvent *ev = &e->xcrossing;
         if (root == ev->window) grabbuttons(root);
         else ungrabbuttons(root);
@@ -43,7 +50,10 @@ enternotify(XEvent *e)
 void
 buttonpress(XEvent *e)
 {
+        printf("Buttonpress!\n");
+        printf("Selc: %ld\n", selc);
         XButtonPressedEvent *ev = &e->xbutton;
+        printf("Buttonpress Window: %ld\n", ev->window);
         if (selc && ev->window == selc->win) return;
 
         XAllowEvents(dpy, ReplayPointer, CurrentTime);
@@ -189,6 +199,8 @@ maprequest(XEvent *e)
                 c->cf &= ~CL_MANAGED;
         }
 
+        ungrabbuttons(root);
+
         attach(c);
         focusattach(c);
 
@@ -249,6 +261,7 @@ propertynotify(XEvent *e)
 void
 configurerequest(XEvent *e)
 {
+        printf("Configure Request!\n");
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
         XWindowChanges wc;
@@ -1350,32 +1363,40 @@ get_last_managed_client(Tag *t)
 }
 
 void
-grabbutton(Window w, unsigned int button)
-{
-        XGrabButton(
-                dpy, button, AnyModifier, w, False, ButtonPressMask,
-                GrabModeSync, GrabModeAsync, None, None);
-}
-
-void
 grabbuttons(Window w)
 {
+        printf("Grabbuttons!\n");
+        // Grab Buttons required for focus on click
         for (int i = 0; i < sizeof(buttons)/sizeof(buttons[0]); ++i)
-                grabbutton(w, buttons[i]);
-        XSync(dpy, 0);
-}
+                XGrabButton(
+                        dpy, buttons[i], AnyModifier, w, False,
+                        ButtonPressMask, GrabModeAsync, GrabModeAsync,
+                        None, None);
 
-void
-ungrabbutton(Window w, unsigned int button)
-{
-        XUngrabButton(dpy, button, AnyModifier, w);
+        // Always map button for window repositioning
+        if (w == root) return;
+        XGrabButton(
+                dpy, Button1, MODKEY, w, False,
+                ButtonMotionMask, GrabModeAsync, GrabModeAsync,
+                None, None);
+
+        XSync(dpy, 0);
 }
 
 void
 ungrabbuttons(Window w)
 {
+        printf("Ungrabbuttons!\n");
         for (int i = 0; i < sizeof(buttons)/sizeof(buttons[0]); ++i)
-                ungrabbutton(w, buttons[i]);
+                XUngrabButton(dpy, buttons[i], AnyModifier, w);
+
+
+        // Always map button for window repositioning
+        if (w == root) return;
+        XGrabButton(
+                dpy, Button1, MODKEY, w, False,
+                ButtonMotionMask, GrabModeAsync, GrabModeAsync,
+                None, None);
         XSync(dpy, 0);
 }
 
@@ -1881,6 +1902,9 @@ setup(void)
 
         // Get screen attributes
         screen = DefaultScreen(dpy);
+
+        // Grab pointer
+        grabbuttons(root);
 
         // Setup atoms
         ATOM_UTF8 = XInternAtom(dpy, "UTF8_STRING", False);
