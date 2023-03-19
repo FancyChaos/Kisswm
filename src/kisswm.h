@@ -239,7 +239,11 @@ void            focus(Window, Client*, bool);
 void            arrange(void);
 void            arrangemon(Monitor*);
 void            set_window_size(Window, int, int, int, int);
+void            set_window_dimension(Window, int, int);
+void            set_window_position(Window, int, int);
 void            set_client_size(Client*, int, int, int, int);
+void            set_client_dimension(Client*, int, int);
+void            set_client_position(Client*, int, int);
 
 void            statusbar_update(void);
 void            statusbar_update_wm_name(void);

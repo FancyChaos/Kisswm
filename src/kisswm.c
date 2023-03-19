@@ -875,9 +875,31 @@ set_window_size(Window w, int width, int height, int x, int y)
 }
 
 void
+set_window_dimension(Window w, int width, int height)
+{
+        if (!w) return;
+
+        XWindowChanges wc = {
+                .width = width,
+                .height = height};
+        XConfigureWindow(dpy, w, CWWidth|CWHeight, &wc);
+}
+
+void
+set_window_position(Window w, int x, int y)
+{
+        if (!w) return;
+
+        XWindowChanges wc = {
+                .x = x,
+                .y = y};
+        XConfigureWindow(dpy, w, CWX|CWY, &wc);
+}
+
+void
 set_client_size(Client *c, int width, int height, int x, int y)
 {
-        if (!c || !(c->cf & CL_MANAGED)) return;
+        if (!c) return;
 
         c->width = width;
         c->height = height;
@@ -885,6 +907,28 @@ set_client_size(Client *c, int width, int height, int x, int y)
         c->y = y;
 
         set_window_size(c->win, width, height, x, y);
+}
+
+void
+set_client_dimension(Client *c, int width, int height)
+{
+        if (!c) return;
+
+        c->width = width;
+        c->height = height;
+
+        set_window_dimension(c->win, width, height);
+}
+
+void
+set_client_position(Client *c, int x, int y)
+{
+        if (!c) return;
+
+        c->x = x;
+        c->y = y;
+
+        set_window_position(c->win, x, y);
 }
 
 void
@@ -1533,6 +1577,10 @@ refresh_monitors(void)
         selmon = m;
         lastmon = m;
 
+        // X and Y Offset after updating position of monitor
+        int x_offset = 0;
+        int y_offset = 0;
+
         for (int n = 0; n < mn; ++n) {
                 // ignore overlaying monitor
                 overlaying = false;
@@ -1548,11 +1596,26 @@ refresh_monitors(void)
                         lastmon->next = m;
                         m->prev = lastmon;
                 } else {
+                        x_offset = m->x - info[n].x;
+                        y_offset = m->y - info[n].y;
                         monitor_update(m, info + n);
                         updatetagmasteroffset(m, 0);
                 }
-
                 m->snum = monitornum++;
+
+                // Update position of Clients if neccessary
+                for (Workspace *ws = m->wss; ws; ws = ws->next) {
+                        for (int i = 0; i < tags_num; ++i) {
+                                for (Client *c = ws->tags[i].clients; c; c = c->next) {
+                                        // Only update if no layout or unmanaged
+                                        if (ws->tags[i].layout->f && !(c->cf & CL_DIALOG)) continue;
+                                        set_client_position(c,
+                                                            c->x - x_offset,
+                                                            c->y - y_offset);
+                                }
+                        }
+                }
+
                 lastmon = m;
                 m = m->next;
         }
