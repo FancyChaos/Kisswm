@@ -29,9 +29,6 @@ static Layout_Func layouts_available[] = {
     STACK_LAYOUT
 };
 
-// Buttons (Mouse clicks) to which windows gets focused
-static const unsigned int buttons[] = {Button1, Button2};
-
 // Default commands to spawn
 static const char *term[] = {"st", NULL};
 static const char *lock[] = {"fxlock", NULL};

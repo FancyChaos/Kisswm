@@ -285,3 +285,8 @@ int screen;
 int sw;
 int currentmonnum;
 long long monupdatetime = 0;
+
+unsigned int buttons[] = {Button1, Button2, Button3};
+int buttonpress_last_x = 0;
+int buttonpress_last_y = 0;
+unsigned int buttonpress_last_button = 0;
