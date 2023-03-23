@@ -85,6 +85,8 @@ buttonpress(XEvent *e)
         // Ignore Buttonpress if event window is selected one
         if (selc && ev->window == selc->win) return;
 
+        XAllowEvents(dpy, ReplayPointer, CurrentTime);
+
         if (ev->window != root) {
                 Client *c = wintoclient(ev->window);
                 if (!c) return;
@@ -92,8 +94,6 @@ buttonpress(XEvent *e)
                 if (selmon != c->mon) focusmon(c->mon);
                 focusclient(c, false);
                 setborders(c->tag);
-
-                XAllowEvents(dpy, ReplayPointer, CurrentTime);
 
                 return;
         }
@@ -230,10 +230,19 @@ maprequest(XEvent *e)
 
         ungrabbuttons(root);
 
-        // TODO: Update size of unmanaged windows or when floating so they do not end up on false monitor
-
         attach(c);
         focusattach(c);
+
+        // Place window at 0,0 on corresponding monitor if needed
+        if (!ct->layout->f || !(c->cf & CL_MANAGED)) {
+                bool x_check = c->x >= c->mon->x && c->x < c->mon->x + c->mon->width;
+                bool y_check = c->y >= c->mon->y && c->y < c->mon->y + c->mon->height;
+                if (x_check || y_check) {
+                        set_client_position(c,
+                                            x_check ? c->x : c->mon->x,
+                                            y_check ? c->y : c->mon->y);
+                }
+        }
 
         arrangemon(c->mon);
         remaptag(c->tag);
@@ -1934,9 +1943,6 @@ setup(void)
         // Get screen attributes
         screen = DefaultScreen(dpy);
 
-        // Grab pointer
-        grabbuttons(root);
-
         // Setup atoms
         ATOM_UTF8 = XInternAtom(dpy, "UTF8_STRING", False);
         icccm_atoms[ICCCM_PROTOCOLS] = XInternAtom(dpy, "WM_PROTOCOLS", False);
@@ -2076,6 +2082,7 @@ setup(void)
         grabkeys();
         focusmon(selmon);
         focustag(selmon->ws->tag);
+        grabbuttons(root);
 
         XSync(dpy, 0);
 }
