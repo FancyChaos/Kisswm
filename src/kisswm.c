@@ -39,6 +39,8 @@ motionnotify(XEvent *e)
 
         // Re-positioning can only occur on selected window
         if (!selc || ev->window != selc->win) return;
+        // Do not re-position if fullscreen window on tag
+        if (selc->tag->client_fullscreen) return;
         // Re-Positioning can only occur if no layout or dialog window
         if (selc->tag->layout->f && !(selc->cf & CL_DIALOG)) return;
 
@@ -295,31 +297,28 @@ configurerequest(XEvent *e)
 {
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
-        XWindowChanges wc;
-
         Client *c = wintoclient(ev->window);
         if (c) {
                 // Do not allow custom sizes when a layout is enabled
                 // Still allow for dialog windows
                 if (c->tag->layout->f && !(c->cf & CL_DIALOG)) return;
-                c->x = wc.x = ev->x;
-                c->y = wc.y = ev->y;
-                c->width = wc.width = ev->width;
-                c->height = wc.height = ev->height;
+                client_set_size(c,
+                                ev->width,
+                                ev->height,
+                                ev->x,
+                                ev->y);
         } else {
                 Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
                 if (wintype != net_win_types[NET_UTIL] &&
                     wintype != net_win_types[NET_DIALOG])
                         return;
-                wc.x = ev->x;
-                wc.y = ev->y;
-                wc.width = ev->width;
-                wc.height = ev->height;
-        }
 
-        wc.sibling = ev->above;
-        wc.stack_mode = ev->detail;
-        XConfigureWindow(dpy, ev->window, (unsigned int) ev->value_mask, &wc);
+                window_set_size(ev->window,
+                                ev->width,
+                                ev->height,
+                                ev->x,
+                                ev->y);
+        }
 
         XSync(dpy, 0);
 }
@@ -604,6 +603,16 @@ unsetfullscreen(Client *c)
                 net_atoms[NET_STATE]);
         c->tag->client_fullscreen = NULL;
         setborders(c->tag);
+
+        // Restore size before fullscreen if floating or dialog
+        if (!c->tag->layout->f || c->cf & CL_DIALOG) {
+                client_set_size(c,
+                                c->width,
+                                c->height,
+                                c->x,
+                                c->y);
+        }
+
         XSync(dpy, 0);
 }
 
@@ -975,6 +984,7 @@ client_set_size(Client *c, int width, int height, int x, int y)
 {
         if (!c) return;
 
+        // Set new dimensions and position
         c->width = width;
         c->height = height;
         c->x = x;
@@ -1021,8 +1031,8 @@ arrangemon(Monitor *m)
 
         // We have a fullscreen client on the tag
         if (t->client_fullscreen) {
-                client_set_size(
-                        t->client_fullscreen,
+                window_set_size(
+                        t->client_fullscreen->win,
                         m->width,
                         m->height,
                         m->x,
@@ -1059,7 +1069,7 @@ grabkeys(void)
 void
 key_client_center(Arg *arg)
 {
-        if (!selc) return;
+        if (!selc || selc->tag->client_fullscreen) return;
         if (selc->tag->layout->f && !(selc->cf & CL_DIALOG)) return;
         client_center(selc);
 }
@@ -1127,6 +1137,10 @@ key_change_layout(Arg* arg)
             ((t->layout->index + 1) == layouts_num) ? 0 : t->layout->index + 1;
 
         t->layout->f = layouts_available[t->layout->index];
+
+        // Set sizes of clients when entering floating mode
+        for (Client *c = t->clients; !t->layout->f && c; c = c->next)
+                client_set_size(c, c->width, c->height, c->x, c->y);
 
         if (t->clientnum_managed) arrangemon(selmon);
 

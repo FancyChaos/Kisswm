@@ -20,8 +20,8 @@ MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
         int master_area = (m->width / 2) + meta->master_offset;
 
         // Set client in master area
-        client_set_size(
-                c,
+        window_set_size(
+                c->win,
                 master_area - border_offset,
                 base_height - border_offset,
                 m->x,
@@ -36,11 +36,11 @@ MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
         int sa_client_last_height = sa_client_render_height +
             base_height - (sa_client_height * sa_clientnum);
 
-        int prev_y = c->y;
+        int prev_y = m->y + statusbar.height;
         for (c = c->next; c; c = c->next) {
                 if (!(c->cf & CL_MANAGED)) continue;
-                client_set_size(
-                        c,
+                window_set_size(
+                        c->win,
                         sa_client_width,
                         c == lc ? sa_client_last_height : sa_client_render_height,
                         sa_client_x,
@@ -74,8 +74,8 @@ SIDE_BY_SIDE_LAYOUT(Monitor *m, Layout_Meta *meta)
         int prev_x = m->x;
         for (; c; c = c->next) {
                 if (!(c->cf & CL_MANAGED)) continue;
-                client_set_size(
-                        c,
+                window_set_size(
+                        c->win,
                         c == lc ? client_last_width : client_width,
                         client_height,
                         prev_x,
@@ -110,8 +110,8 @@ STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
         int prev_y = m->y + statusbar.height;
         for (; c; c = c->next) {
                 if (!(c->cf & CL_MANAGED)) continue;
-                client_set_size(
-                        c,
+                window_set_size(
+                        c->win,
                         client_width,
                         c == lc ? client_last_render_height : client_render_height,
                         m->x,
@@ -129,8 +129,8 @@ lonely_client(Client *c)
         if (!c) return;
 
         int border_offset = borderwidth * 2;
-        client_set_size(
-                c,
+        window_set_size(
+                c->win,
                 c->mon->width - border_offset,
                 c->mon->height - statusbar.height - border_offset,
                 c->mon->x,
