@@ -29,6 +29,9 @@ static Layout_Func layouts_available[] = {
     STACK_LAYOUT
 };
 
+// Center floating client on monitor
+bool center_client = true;
+
 // Default commands to spawn
 static const char *term[] = {"st", NULL};
 static const char *lock[] = {"fxlock", NULL};
@@ -71,6 +74,8 @@ Key keys[] = {
 
         { MODKEY|ShiftMask,           XK_k,                   key_move_client,                  {.i = 1} },
         { MODKEY|ShiftMask,           XK_j,                   key_move_client,                  {.i = -1} },
+
+        { MODKEY,                     XK_c,                   key_client_center,                {0} },
 
         { MODKEY,                     XK_l,                   key_update_master_offset,         {.i = 50} },
         { MODKEY,                     XK_h,                   key_update_master_offset,         {.i = -50} },

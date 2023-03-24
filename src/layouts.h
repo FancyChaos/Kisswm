@@ -20,7 +20,7 @@ MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
         int master_area = (m->width / 2) + meta->master_offset;
 
         // Set client in master area
-        set_client_size(
+        client_set_size(
                 c,
                 master_area - border_offset,
                 base_height - border_offset,
@@ -39,7 +39,7 @@ MASTER_STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
         int prev_y = c->y;
         for (c = c->next; c; c = c->next) {
                 if (!(c->cf & CL_MANAGED)) continue;
-                set_client_size(
+                client_set_size(
                         c,
                         sa_client_width,
                         c == lc ? sa_client_last_height : sa_client_render_height,
@@ -74,7 +74,7 @@ SIDE_BY_SIDE_LAYOUT(Monitor *m, Layout_Meta *meta)
         int prev_x = m->x;
         for (; c; c = c->next) {
                 if (!(c->cf & CL_MANAGED)) continue;
-                set_client_size(
+                client_set_size(
                         c,
                         c == lc ? client_last_width : client_width,
                         client_height,
@@ -110,7 +110,7 @@ STACK_LAYOUT(Monitor *m, Layout_Meta *meta)
         int prev_y = m->y + statusbar.height;
         for (; c; c = c->next) {
                 if (!(c->cf & CL_MANAGED)) continue;
-                set_client_size(
+                client_set_size(
                         c,
                         client_width,
                         c == lc ? client_last_render_height : client_render_height,
@@ -129,7 +129,7 @@ lonely_client(Client *c)
         if (!c) return;
 
         int border_offset = borderwidth * 2;
-        set_client_size(
+        client_set_size(
                 c,
                 c->mon->width - border_offset,
                 c->mon->height - statusbar.height - border_offset,

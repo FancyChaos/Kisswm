@@ -42,24 +42,24 @@ motionnotify(XEvent *e)
         // Re-Positioning can only occur if no layout or dialog window
         if (selc->tag->layout->f && !(selc->cf & CL_DIALOG)) return;
 
-        int x_travel = ev->x_root - buttonpress_last_x;
-        int y_travel = ev->y_root - buttonpress_last_y;
+        int x_travel = ev->x_root - mouse_last_x;
+        int y_travel = ev->y_root - mouse_last_y;
 
-        switch (buttonpress_last_button) {
+        switch (mouse_last_button) {
                 case Button1:
-                        set_client_position(selc, selc->x + x_travel,
+                        client_set_position(selc, selc->x + x_travel,
                                             selc->y + y_travel);
                         break;
                 case Button2:
                         /* FALLTHROUGH */
                 case Button3:
-                        set_client_dimension(selc, selc->width + x_travel,
+                        client_set_dimension(selc, selc->width + x_travel,
                                              selc->height + y_travel);
                         break;
         }
 
-        buttonpress_last_x = ev->x_root;
-        buttonpress_last_y = ev->y_root;
+        mouse_last_x = ev->x_root;
+        mouse_last_y = ev->y_root;
 
         XSync(dpy, 0);
 }
@@ -78,9 +78,9 @@ buttonpress(XEvent *e)
         XButtonPressedEvent *ev = &e->xbutton;
 
         // Save last position of mouse click
-        buttonpress_last_x = ev->x_root;
-        buttonpress_last_y = ev->y_root;
-        buttonpress_last_button = ev->button;
+        mouse_last_x = ev->x_root;
+        mouse_last_y = ev->y_root;
+        mouse_last_button = ev->button;
 
         // Ignore Buttonpress if event window is selected one
         if (selc && ev->window == selc->win) return;
@@ -92,7 +92,7 @@ buttonpress(XEvent *e)
                 if (!c) return;
 
                 if (selmon != c->mon) focusmon(c->mon);
-                focusclient(c, false);
+                client_focus(c, false);
                 setborders(c->tag);
 
                 return;
@@ -105,7 +105,7 @@ buttonpress(XEvent *e)
 
                 if (ev->x_root >= m->x && ev->x_root <= m->x + m->width) {
                         focusmon(m);
-                        focusclient( m->ws->tag->clients_focus, false);
+                        client_focus( m->ws->tag->clients_focus, false);
                         break;
                 }
         }
@@ -189,7 +189,7 @@ destroynotify(XEvent *e)
 {
         XDestroyWindowEvent *ev = &e->xdestroywindow;
         Client *c = wintoclient(ev->window);
-        closeclient(c);
+        client_close(c);
         XSync(dpy, 0);
 }
 
@@ -234,21 +234,13 @@ maprequest(XEvent *e)
         focusattach(c);
 
         // Place window at 0,0 on corresponding monitor if needed
-        if (!ct->layout->f || !(c->cf & CL_MANAGED)) {
-                bool x_check = c->x >= c->mon->x && c->x < c->mon->x + c->mon->width;
-                bool y_check = c->y >= c->mon->y && c->y < c->mon->y + c->mon->height;
-                if (x_check || y_check) {
-                        set_client_position(c,
-                                            x_check ? c->x : c->mon->x,
-                                            y_check ? c->y : c->mon->y);
-                }
-        }
+        if (!ct->layout->f || c->cf & CL_DIALOG) client_default_position(c, true);
 
         arrangemon(c->mon);
         remaptag(c->tag);
 
         // Focus new client
-        focusclient(c, true);
+        client_focus(c, true);
 
         statusbar_draw(c->mon);
 
@@ -280,10 +272,10 @@ configurenotify(XEvent *e)
 
         // Update statusbar to new width of combined monitors
         statusbar.width = sw;
-        set_window_size(statusbar.win, statusbar.width, statusbar.height, 0, 0);
+        window_set_size(statusbar.win, statusbar.width, statusbar.height, 0, 0);
         statusbar_update();
 
-        focusclient(selmon->ws->tag->clients_focus, true);
+        client_focus(selmon->ws->tag->clients_focus, true);
 
         XSync(dpy, 0);
 }
@@ -494,7 +486,7 @@ hide(Client *c)
 
         // Detach from focus
         focusdetach(c);
-        focusclient(c->tag->clients_focus, true);
+        client_focus(c->tag->clients_focus, true);
 }
 
 void
@@ -513,7 +505,7 @@ unhide(Client *c)
 
         // Attach to focus
         focusattach(c);
-        focusclient(c, true);
+        client_focus(c, true);
 }
 
 void
@@ -564,7 +556,7 @@ focustag(Tag *t)
 
         // arrange and focus
         arrangemon(t->ws->mon);
-        focusclient(t->clients_focus, true);
+        client_focus(t->clients_focus, true);
 
         // Update statusbar (Due to state change)
         workspace_update_state(t->ws);
@@ -629,9 +621,9 @@ move_tag_to_tag(Tag *t, Tag *tt)
 void
 move_client_to_tag(Client *c, Tag *t)
 {
-        // Unmapclient if moved to an inactive tag
+        // client_unmap if moved to an inactive tag
         Tag *tag_active = t->ws->mon->ws->tag;
-        if (t != tag_active) unmapclient(c);
+        if (t != tag_active) client_unmap(c);
 
         // Detach client from current tag
         detach(c);
@@ -652,14 +644,14 @@ move_client_to_tag(Client *c, Tag *t)
 }
 
 void
-mapclient(Client *c)
+client_map(Client *c)
 {
         if (!c) return;
         XMapWindow(dpy, c->win);
 }
 
 void
-unmapclient(Client *c)
+client_unmap(Client *c)
 {
         if (!c) return;
         XUnmapWindow(dpy, c->win);
@@ -672,24 +664,24 @@ remaptag(Tag *t)
 
         if (t != t->ws->mon->ws->tag) {
                 // if tag is not the current active tag unmap everything
-                for (Client *c = t->clients; c; c = c->next) unmapclient(c);
+                for (Client *c = t->clients; c; c = c->next) client_unmap(c);
         } else if (t->client_fullscreen) {
                 // only map fullscreen and dialog clients
                 for (Client *c = t->clients; c; c = c->next) {
-                        if (c == t->client_fullscreen ||c->cf & CL_DIALOG) mapclient(c);
-                        else unmapclient(c);
+                        if (c == t->client_fullscreen ||c->cf & CL_DIALOG) client_map(c);
+                        else client_unmap(c);
                 }
         } else {
                 for (Client *c = t->clients; c; c = c->next) {
-                        if (c->cf & CL_HIDDEN) unmapclient(c);
-                        else mapclient(c);
+                        if (c->cf & CL_HIDDEN) client_unmap(c);
+                        else client_map(c);
                 }
         }
         XSync(dpy, 0);
 }
 
 void
-closeclient(Client *c)
+client_close(Client *c)
 {
         if (!c) return;
 
@@ -716,7 +708,7 @@ closeclient(Client *c)
         if (t == m->ws->tag) {
                 remaptag(t);
                 arrangemon(m);
-                if (m == selmon) focusclient(t->clients_focus, true);
+                if (m == selmon) client_focus(t->clients_focus, true);
         }
 }
 
@@ -760,14 +752,14 @@ focus(Window w, Client *c, bool warp)
 }
 
 void
-focusclient(Client *c, bool warp)
+client_focus(Client *c, bool warp)
 {
         if (!c) {
                 c = selmon->ws->tag->clients_focus;
                 if (c && c->cf & CL_HIDDEN) {
                         return;
                 } else if (c && c != selc) {
-                        focusclient(c, warp);
+                        client_focus(c, warp);
                 } else if (!c) {
                         if (selc) grabbuttons(selc->win);
                         selc = NULL;
@@ -914,7 +906,7 @@ updatetagmasteroffset(Monitor *m, int offset)
 }
 
 void
-set_window_size(Window w, int width, int height, int x, int y)
+window_set_size(Window w, int width, int height, int x, int y)
 {
         if (!w) return;
 
@@ -927,7 +919,7 @@ set_window_size(Window w, int width, int height, int x, int y)
 }
 
 void
-set_window_dimension(Window w, int width, int height)
+window_set_dimension(Window w, int width, int height)
 {
         if (!w) return;
 
@@ -938,7 +930,7 @@ set_window_dimension(Window w, int width, int height)
 }
 
 void
-set_window_position(Window w, int x, int y)
+window_set_position(Window w, int x, int y)
 {
         if (!w) return;
 
@@ -949,7 +941,37 @@ set_window_position(Window w, int x, int y)
 }
 
 void
-set_client_size(Client *c, int width, int height, int x, int y)
+client_default_position(Client *c, bool center)
+{
+        if (!c) return;
+
+        // User option to center every client
+        if (center && center_client) {
+                client_center(c);
+                return;
+        }
+
+        // Make sure client is contained inside its monitor
+        bool x_check = c->x >= c->mon->x && c->x < c->mon->x + c->mon->width;
+        bool y_check = c->y >= c->mon->y && c->y < c->mon->y + c->mon->height;
+        if (x_check || y_check) {
+                client_set_position(c,
+                                    x_check ? c->x : c->mon->x,
+                                    y_check ? c->y : c->mon->y);
+        }
+}
+
+void
+client_center(Client *c)
+{
+        if (!c) return;
+        client_set_position(c,
+                            c->mon->x + (c->mon->width / 2) - (c->width / 2),
+                            c->mon->y + (c->mon->height / 2) - (c->height / 2));
+}
+
+void
+client_set_size(Client *c, int width, int height, int x, int y)
 {
         if (!c) return;
 
@@ -958,29 +980,29 @@ set_client_size(Client *c, int width, int height, int x, int y)
         c->x = x;
         c->y = y;
 
-        set_window_size(c->win, width, height, x, y);
+        window_set_size(c->win, width, height, x, y);
 }
 
 void
-set_client_dimension(Client *c, int width, int height)
+client_set_dimension(Client *c, int width, int height)
 {
         if (!c) return;
 
         c->width = width;
         c->height = height;
 
-        set_window_dimension(c->win, width, height);
+        window_set_dimension(c->win, width, height);
 }
 
 void
-set_client_position(Client *c, int x, int y)
+client_set_position(Client *c, int x, int y)
 {
         if (!c) return;
 
         c->x = x;
         c->y = y;
 
-        set_window_position(c->win, x, y);
+        window_set_position(c->win, x, y);
 }
 
 void
@@ -999,7 +1021,7 @@ arrangemon(Monitor *m)
 
         // We have a fullscreen client on the tag
         if (t->client_fullscreen) {
-                set_client_size(
+                client_set_size(
                         t->client_fullscreen,
                         m->width,
                         m->height,
@@ -1035,6 +1057,14 @@ grabkeys(void)
 /*** Keybinding fuctions ***/
 
 void
+key_client_center(Arg *arg)
+{
+        if (!selc) return;
+        if (selc->tag->layout->f && !(selc->cf & CL_DIALOG)) return;
+        client_center(selc);
+}
+
+void
 key_create_workspace(Arg* arg)
 {
         Workspace *ws = workspace_add(selmon);
@@ -1055,7 +1085,7 @@ key_move_client_to_workspace(Arg* arg)
         if (ws) move_client_to_tag(selc, ws->tags + selc->tag->num);
 
         arrangemon(selmon);
-        focusclient(selmon->ws->tag->clients_focus, true);
+        client_focus(selmon->ws->tag->clients_focus, true);
 }
 
 void
@@ -1178,7 +1208,7 @@ key_move_client_to_monitor(Arg *arg)
         arrangemon(selmon);
 
         // Focus next client on current monitor/tag
-        focusclient(t->clients_focus, true);
+        client_focus(t->clients_focus, true);
 }
 
 void
@@ -1202,7 +1232,7 @@ key_move_client_to_tag(Arg *arg)
         arrangemon(selmon);
 
         // Focus previous client
-        focusclient(t->clients_focus, true);
+        client_focus(t->clients_focus, true);
 
         statusbar_draw(selmon);
 }
@@ -1299,7 +1329,7 @@ key_cycle_monitor(Arg *arg)
         if (m == selmon) return;
 
         focusmon(m);
-        focusclient(m->ws->tag->clients_focus, true);
+        client_focus(m->ws->tag->clients_focus, true);
         XSync(dpy, 0);
 }
 
@@ -1336,9 +1366,9 @@ key_cycle_client(Arg *arg)
                 }
 
                 if (c && c != selc)
-                        focusclient(c, true);
+                        client_focus(c, true);
                 else if (c && c != t->client_fullscreen)
-                        focusclient(t->client_fullscreen, true);
+                        client_focus(t->client_fullscreen, true);
 
                 return;
         }
@@ -1367,7 +1397,7 @@ key_cycle_client(Arg *arg)
                 }
         }
 
-        focusclient(c, true);
+        client_focus(c, true);
 }
 
 void
@@ -1668,9 +1698,10 @@ refresh_monitors(void)
                 for (Workspace *ws = m->wss; ws; ws = ws->next) {
                         for (int i = 0; i < tags_num; ++i) {
                                 for (Client *c = ws->tags[i].clients; c; c = c->next) {
-                                        // Only update if no layout or unmanaged
+                                        // Do not update position if we have a layout
+                                        // and the client is not a dialog
                                         if (ws->tags[i].layout->f && !(c->cf & CL_DIALOG)) continue;
-                                        set_client_position(c,
+                                        client_set_position(c,
                                                             c->x - x_offset,
                                                             c->y - y_offset);
                                 }
@@ -1873,7 +1904,7 @@ monitor_create(XRRMonitorInfo *info)
         m->ws = NULL;
         m->ws_count = 0;
 
-        if(!workspace_add(m))
+        if (!workspace_add(m))
                 die("Could not create workspace while creating a monitor");
 
         return m;
