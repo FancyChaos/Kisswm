@@ -236,7 +236,7 @@ maprequest(XEvent *e)
         focusattach(c);
 
         // Place window at 0,0 on corresponding monitor if needed
-        if (!ct->layout->f || c->cf & CL_DIALOG) client_default_position(c, true);
+        client_default_position(c, true);
 
         arrangemon(c->mon);
         remaptag(c->tag);
@@ -990,6 +990,7 @@ client_set_size(Client *c, int width, int height, int x, int y)
         c->x = x;
         c->y = y;
 
+        if (c->tag->layout->f && !(c->cf & CL_DIALOG)) return;
         window_set_size(c->win, width, height, x, y);
 }
 
@@ -1001,6 +1002,7 @@ client_set_dimension(Client *c, int width, int height)
         c->width = width;
         c->height = height;
 
+        if (c->tag->layout->f && !(c->cf & CL_DIALOG)) return;
         window_set_dimension(c->win, width, height);
 }
 
@@ -1012,6 +1014,7 @@ client_set_position(Client *c, int x, int y)
         c->x = x;
         c->y = y;
 
+        if (c->tag->layout->f && !(c->cf & CL_DIALOG)) return;
         window_set_position(c->win, x, y);
 }
 
