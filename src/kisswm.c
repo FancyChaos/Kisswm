@@ -555,6 +555,12 @@ focustag(Tag *t)
 
         // arrange and focus
         arrangemon(t->ws->mon);
+        // Re-position windows if floating mode
+        if (!t->client_fullscreen && !t->layout->f) {
+                for (Client *c = t->clients; c; c = c->next)
+                        window_set_size(c->win, c->width, c->height,
+                                        c->x, c->y);
+        }
         client_focus(t->clients_focus, true);
 
         // Update statusbar (Due to state change)

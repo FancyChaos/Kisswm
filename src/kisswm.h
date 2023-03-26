@@ -94,12 +94,13 @@ struct Client {
         Client *next, *prev;
         Client *nextfocus, *prevfocus;
         // Client flags
+        // Size and position only matter for floating mode (non tiling)
+        // or dialog clients
         int cf;
         int x;
         int y;
         int width;
         int height;
-        int bw;
 };
 
 struct Tag {
