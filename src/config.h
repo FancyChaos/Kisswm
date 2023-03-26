@@ -32,6 +32,9 @@ static Layout_Func layouts_available[] = {
 // Center floating client on monitor
 bool center_client = true;
 
+// Warp mouse pointer to client on focus
+bool mouse_warp = true;
+
 // Default commands to spawn
 static const char *term[] = {"st", NULL};
 static const char *lock[] = {"fxlock", NULL};

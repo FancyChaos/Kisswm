@@ -750,18 +750,22 @@ focus(Window w, Client *c, bool warp)
                 1);
         XRaiseWindow(dpy, w);
 
-        if (!warp) {
+        if (!mouse_warp || !warp) {
                 XSync(dpy, 0);
                 return;
         }
 
-        if (w == root)
+        if (w == root) {
                 XWarpPointer(
                         dpy, 0, w, 0, 0, 0, 0, selmon->x + selmon->width / 2,
                         selmon->y + selmon->height / 2);
-        else if (c && c->win == w)
+        }
+        else if (c && c->win == w) {
+                XWindowAttributes wa = {0};
+                XGetWindowAttributes(dpy, w, &wa);
                 XWarpPointer(
-                        dpy, 0, w, 0, 0, 0, 0,  c->width / 2, c->height / 2);
+                        dpy, 0, w, 0, 0, 0, 0,  wa.width / 2, wa.height / 2);
+        }
 
         XSync(dpy, 0);
 }
