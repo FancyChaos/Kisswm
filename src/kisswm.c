@@ -297,29 +297,28 @@ configurerequest(XEvent *e)
 {
         XConfigureRequestEvent *ev = &e->xconfigurerequest;
 
+        XWindowChanges wc;
+
+        // Update Client size
         Client *c = wintoclient(ev->window);
         if (c) {
                 // Do not allow custom sizes when a layout is enabled
                 // Still allow for dialog windows
                 if (c->tag->layout->f && !(c->cf & CL_DIALOG)) return;
-                client_set_size(c,
-                                ev->width,
-                                ev->height,
-                                ev->x,
-                                ev->y);
-        } else {
-                Atom wintype = getwinprop(ev->window, net_atoms[NET_TYPE]);
-                if (wintype != net_win_types[NET_UTIL] &&
-                    wintype != net_win_types[NET_DIALOG])
-                        return;
-
-                window_set_size(ev->window,
-                                ev->width,
-                                ev->height,
-                                ev->x,
-                                ev->y);
+                c->x = ev->x;
+                c->y = ev->y;
+                c->width = ev->width;
+                c->height = ev->height;
         }
 
+        wc.x = ev->x;
+        wc.y = ev->y;
+        wc.width = ev->width;
+        wc.height = ev->height;
+        wc.sibling = ev->above;
+        wc.stack_mode = ev->detail;
+
+        XConfigureWindow(dpy, ev->window, (unsigned int) ev->value_mask, &wc);
         XSync(dpy, 0);
 }
 
