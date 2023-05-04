@@ -24,4 +24,4 @@ endif
 INCS = -I$(X11INC) -I$(FREETYPEINC)
 LIBS = -L$(X11LIB) -lX11 $(LIBS_OS) $(XRANDRLIBS) $(FREETYPELIBS)
 
-CFLAGS = -MMD -MP -std=c99 -Wall -pedantic -Wconversion -O3 $(INCS)
+CFLAGS = -MMD -MP -std=c99 -Wall -pedantic -Wconversion -O2 $(INCS)
