@@ -36,34 +36,75 @@ void
 motionnotify(XEvent *e)
 {
         XMotionEvent *ev = &e->xmotion;
+        Client *c = selc;
 
         // Re-positioning can only occur on selected window
-        if (!selc || ev->window != selc->win) return;
+        if (!c || ev->window != c->win) return;
         // Do not re-position if fullscreen window on tag
-        if (selc->tag->client_fullscreen) return;
+        if (c->tag->client_fullscreen) return;
         // Re-Positioning can only occur if no layout or dialog window
-        if (selc->tag->layout->f && !(selc->cf & CL_DIALOG)) return;
+        if (c->tag->layout->f && !(c->cf & CL_DIALOG)) return;
 
         int x_travel = ev->x_root - mouse_last_x;
         int y_travel = ev->y_root - mouse_last_y;
 
         switch (mouse_last_button) {
                 case Button1:
-                        client_set_position(selc, selc->x + x_travel,
-                                            selc->y + y_travel);
+                        client_set_position(c, c->x + x_travel,
+                                            c->y + y_travel);
+                        XSync(dpy, 0);
                         break;
                 case Button2:
                         /* FALLTHROUGH */
                 case Button3:
-                        client_set_dimension(selc, selc->width + x_travel,
-                                             selc->height + y_travel);
+                        client_set_dimension(c, c->width + x_travel,
+                                             c->height + y_travel);
+                        XSync(dpy, 0);
                         break;
         }
-
         mouse_last_x = ev->x_root;
         mouse_last_y = ev->y_root;
 
-        XSync(dpy, 0);
+        // Assign client to different monitor if border crossed.
+        Monitor *m = c->mon;
+        Monitor *nm = NULL;
+        int client_mid_x = c->x + (c->width / 2);
+        int offset_x = c->width / 8;
+        if (m->next &&
+            (client_mid_x - offset_x > (m->x + m->width))) {
+                nm = m->next;
+        } else if (m->prev &&
+                   (client_mid_x + offset_x < m->x)) {
+                nm = m->prev;
+        } else {
+                return;
+        }
+
+        // Client was dragged to different monitor //
+
+        // Detach client from current tag
+        detach(c);
+        // Detach client from focus
+        focusdetach(c);
+
+        // Assign client to targets monitor
+        c->mon = nm;
+        c->ws = nm->ws;
+        c->tag = nm->ws->tag;
+
+        attach(c);
+        focusattach(c);
+
+        focusmon(nm);
+
+        arrangemon(nm);
+        client_focus(nm->ws->tag->clients_focus, false);
+
+        // Update statusbar (Due to state change)
+        workspace_update_state(nm->ws);
+        statusbar_draw(nm);
+        workspace_update_state(m->ws);
+        statusbar_draw(m);
 }
 
 void
@@ -618,6 +659,9 @@ unsetfullscreen(Client *c)
                                 c->y);
         }
 
+        workspace_update_state(c->tag->ws);
+        statusbar_draw(c->mon);
+
         XSync(dpy, 0);
 }
 
@@ -644,10 +688,18 @@ move_client_to_tag(Client *c, Tag *t)
         // Detach client from focus
         focusdetach(c);
 
-        // Assign client to targets tag workspace and monitor
-        c->mon = t->ws->mon;
+        // Assign client to targets clients workpace and tag
         c->ws = t->ws;
         c->tag = t;
+
+        // Assign client to different monitor and update position
+        if (c->mon != t->ws->mon) {
+                client_set_position(
+                        c,
+                        c->x + (t->ws->mon->x - c->mon->x),
+                        c->y + (t->ws->mon->y - c->mon->y));
+        }
+        c->mon = t->ws->mon;
 
         // Update state if workspace of tag is active but tag is not
         if (t->ws == t->ws->mon->ws && t != tag_active)
